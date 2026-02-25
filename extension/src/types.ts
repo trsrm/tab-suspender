@@ -23,6 +23,6 @@ export interface SuspendDecision {
 export interface TabActivity {
   tabId: number;
   windowId: number;
-  lastActiveAtMs: number;
-  lastUpdatedAtMs: number;
+  lastActiveAtMinute: number;
+  lastUpdatedAtMinute: number;
 }

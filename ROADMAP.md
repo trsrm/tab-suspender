@@ -52,7 +52,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 ## Plan Status Board
 - [x] Plan 0: Roadmap and Governance ([details](docs/plans/plan-0-roadmap-governance.md))
 - [x] Plan 1: Scaffold and Skeleton ([details](docs/plans/plan-1-scaffold-skeleton.md))
-- [ ] Plan 2: Background Event Wiring ([details](docs/plans/plan-2-background-event-wiring.md))
+- [x] Plan 2: Background Event Wiring ([details](docs/plans/plan-2-background-event-wiring.md))
 - [ ] Plan 3: Policy Engine + Unit Tests ([details](docs/plans/plan-3-policy-engine.md))
 - [ ] Plan 4: Suspend Action + Lightweight Suspended Screen ([details](docs/plans/plan-4-suspend-action.md))
 - [ ] Plan 5: Restore Flow + URL Safety Guards ([details](docs/plans/plan-5-restore-flow.md))
@@ -92,8 +92,16 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-006**: Global decision history is maintained in `ROADMAP.md` (not a separate file).
   - Alternatives: dedicated `docs/plans/decision-log.md`.
   - Impact: single source of truth for cross-plan decisions.
+- **D-007**: Activity timestamps use minute precision (`epoch-minute` integers) with explicit `*AtMinute` naming.
+  - Alternatives: millisecond timestamps or ISO minute strings.
+  - Impact: clearer semantics and stable comparisons for timeout policy logic.
+- **D-008**: Runtime JavaScript output is canonicalized to `build/extension`; `extension/` is source and static assets only.
+  - Alternatives: maintain duplicate runtime JS in both `extension/` and `build/extension`.
+  - Impact: single compilation target and reduced drift risk.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
 - 2026-02-25: Moved global decision log into `ROADMAP.md` and removed separate decision-log file.
 - 2026-02-25: Restored roadmap rules/hints sections; kept only plan implementation details in `docs/plans/`.
+- 2026-02-25: Completed Plan 2 background event wiring with minute-level activity tracking and tests.
+- 2026-02-25: Consolidated runtime build pipeline to a single output path (`build/extension`).

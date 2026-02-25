@@ -4,7 +4,8 @@
 Provide a small, safe baseline for a Safari tab-suspender extension.
 
 ## Components
-- `background.js` / `src/background.ts`: extension orchestration entrypoint (currently stub only).
+- `src/*.ts`: TypeScript source for extension runtime logic.
+- `build/extension/background.js` / `build/extension/options.js` / `build/extension/suspended.js`: compiled runtime outputs generated from `src/*.ts` via `npm run build`.
 - `suspended.html` + `suspended.js`: placeholder lightweight suspended-page UI.
 - `options.html` + `options.js`: placeholder options UI.
 - `src/types.ts`: planned interfaces for settings and suspension decisions.
@@ -21,7 +22,7 @@ Provide a small, safe baseline for a Safari tab-suspender extension.
 - Explicit URL validation deferred to Plan 4/5.
 
 ## Performance Baseline
-- Background runtime is stub-only and event-light.
+- Background runtime tracks tab/window activity in bounded in-memory state.
 - Suspended/options pages are static and lightweight.
 
 ## Accessibility Baseline
