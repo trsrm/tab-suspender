@@ -22,7 +22,7 @@ function createEvent() {
   };
 }
 
-function createChromeMock({ queryResponder = () => [] } = {}) {
+function createChromeMock({ queryResponder = () => [], updateResponder = () => ({}) } = {}) {
   const runtimeOnInstalled = createEvent();
   const runtimeOnStartup = createEvent();
   const runtimeOnMessage = createEvent();
@@ -33,16 +33,22 @@ function createChromeMock({ queryResponder = () => [] } = {}) {
   const tabsOnReplaced = createEvent();
 
   const windowsOnFocusChanged = createEvent();
+  const alarmsOnAlarm = createEvent();
+  const actionOnClicked = createEvent();
 
   const queryCalls = [];
   const tabsUpdateCalls = [];
+  const alarmCreateCalls = [];
 
   const chromeMock = {
     runtime: {
       onInstalled: runtimeOnInstalled,
       onStartup: runtimeOnStartup,
       onMessage: runtimeOnMessage,
-      lastError: undefined
+      lastError: undefined,
+      getURL(relativePath) {
+        return `safari-extension://test-extension/${relativePath}`;
+      }
     },
     tabs: {
       onActivated: tabsOnActivated,
@@ -62,13 +68,44 @@ function createChromeMock({ queryResponder = () => [] } = {}) {
             return tabs;
           });
       },
-      update(...args) {
-        tabsUpdateCalls.push(args);
+      update(tabId, updateProperties, callback) {
+        tabsUpdateCalls.push([tabId, updateProperties]);
+
+        return Promise.resolve()
+          .then(() => updateResponder(tabId, updateProperties))
+          .then((result) => {
+            if (callback) {
+              callback(result);
+            }
+
+            return result;
+          })
+          .catch((error) => {
+            if (callback) {
+              chromeMock.runtime.lastError = {
+                message: error instanceof Error ? error.message : String(error)
+              };
+              callback(undefined);
+              chromeMock.runtime.lastError = undefined;
+              return undefined;
+            }
+
+            throw error;
+          });
       }
     },
     windows: {
       onFocusChanged: windowsOnFocusChanged,
       WINDOW_ID_NONE: -1
+    },
+    alarms: {
+      onAlarm: alarmsOnAlarm,
+      create(name, alarmInfo) {
+        alarmCreateCalls.push({ name, alarmInfo });
+      }
+    },
+    action: {
+      onClicked: actionOnClicked
     }
   };
 
@@ -82,11 +119,14 @@ function createChromeMock({ queryResponder = () => [] } = {}) {
       tabsOnUpdated,
       tabsOnRemoved,
       tabsOnReplaced,
-      windowsOnFocusChanged
+      windowsOnFocusChanged,
+      alarmsOnAlarm,
+      actionOnClicked
     },
     calls: {
       queryCalls,
-      tabsUpdateCalls
+      tabsUpdateCalls,
+      alarmCreateCalls
     }
   };
 }
@@ -117,19 +157,23 @@ function assertMinutePrecision(records) {
   }
 }
 
-test("registers listeners and seeds active tabs on startup", { concurrency: false }, async () => {
+test("registers listeners, schedules alarm, and seeds active tabs on startup", { concurrency: false }, async () => {
   setNowMinute(15);
 
-  const { events, backgroundModule } = await importBackgroundWithMock({
+  const { events, calls, backgroundModule } = await importBackgroundWithMock({
     queryResponder(queryInfo) {
       if (queryInfo.windowId) {
         return [{ id: 99, windowId: queryInfo.windowId }];
       }
 
-      return [
-        { id: 1, windowId: 101 },
-        { id: 2, windowId: 202 }
-      ];
+      if (queryInfo.active === true) {
+        return [
+          { id: 1, windowId: 101 },
+          { id: 2, windowId: 202 }
+        ];
+      }
+
+      return [];
     }
   });
 
@@ -139,6 +183,15 @@ test("registers listeners and seeds active tabs on startup", { concurrency: fals
   assert.equal(events.tabsOnReplaced.listeners.length, 1);
   assert.equal(events.windowsOnFocusChanged.listeners.length, 1);
   assert.equal(events.runtimeOnMessage.listeners.length, 1);
+  assert.equal(events.alarmsOnAlarm.listeners.length, 1);
+  assert.equal(events.actionOnClicked.listeners.length, 1);
+
+  assert.deepEqual(calls.alarmCreateCalls, [
+    {
+      name: "suspend-sweep-v1",
+      alarmInfo: { periodInMinutes: 1 }
+    }
+  ]);
 
   const snapshot = backgroundModule.__testing.getActivitySnapshot();
   assert.deepEqual(snapshot, [

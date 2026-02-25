@@ -54,7 +54,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 1: Scaffold and Skeleton ([details](docs/plans/plan-1-scaffold-skeleton.md))
 - [x] Plan 2: Background Event Wiring ([details](docs/plans/plan-2-background-event-wiring.md))
 - [x] Plan 3: Policy Engine + Unit Tests ([details](docs/plans/plan-3-policy-engine.md))
-- [ ] Plan 4: Suspend Action + Lightweight Suspended Screen ([details](docs/plans/plan-4-suspend-action.md))
+- [x] Plan 4: Suspend Action + Lightweight Suspended Screen ([details](docs/plans/plan-4-suspend-action.md))
 - [ ] Plan 5: Restore Flow + URL Safety Guards ([details](docs/plans/plan-5-restore-flow.md))
 - [ ] Plan 6: Essential Settings UI and Persistence ([details](docs/plans/plan-6-settings-ui.md))
 - [ ] Plan 7: Domain Exclusions With Wildcards ([details](docs/plans/plan-7-domain-exclusions.md))
@@ -101,6 +101,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-009**: Policy evaluator precedence is fixed and deterministic, with idle timeout based on `max(lastActiveAtMinute, lastUpdatedAtMinute)`.
   - Alternatives: configurable or multi-reason precedence, activity-source-specific idle semantics.
   - Impact: predictable behavior and stable policy assertions across Plans 3-7.
+- **D-010**: Toolbar action click suspend bypasses only `active` and timeout checks, while preserving pinned/audible/internal safety guards.
+  - Alternatives: strict full-policy click behavior, or force-suspend bypassing all guards.
+  - Impact: immediate manual suspend UX without weakening core safety protections.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -109,3 +112,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-25: Completed Plan 2 background event wiring with minute-level activity tracking and tests.
 - 2026-02-25: Consolidated runtime build pipeline to a single output path (`build/extension`).
 - 2026-02-25: Completed Plan 3 policy engine with deterministic decision matrix and unit tests.
+- 2026-02-25: Completed Plan 4 suspend action flow with alarm-driven sweep, action-click suspend, payload encoding, and suspended-page decoding.

@@ -1,16 +1,42 @@
-import type { TabActivity } from "./types.js";
+import { evaluateSuspendDecision } from "./policy.js";
+import type { PolicyEvaluatorInput, Settings, SuspendPayload, TabActivity } from "./types.js";
 
 const LOG_PREFIX = "[tab-suspender]";
 const MINUTE_MS = 60_000;
 const WINDOW_ID_NONE = -1;
+const MAX_SUSPENDED_TITLE_LENGTH = 120;
+const SUSPEND_SWEEP_ALARM = "suspend-sweep-v1";
+const SUSPEND_SWEEP_PERIOD_MINUTES = 1;
+
+const DEFAULT_SETTINGS: Settings = Object.freeze({
+  idleMinutes: 60,
+  excludedHosts: [],
+  skipPinned: true,
+  skipAudible: true
+});
 
 type QueryTab = {
   id?: number;
   windowId?: number;
+  active?: boolean;
+  pinned?: boolean;
+  audible?: boolean;
+  url?: string;
+  title?: string;
 };
+
 type ActivatedInfo = {
   tabId: number;
   windowId: number;
+};
+
+type AlarmInfo = {
+  name?: string;
+};
+
+type SuspendEvaluationOptions = {
+  ignoreActive?: boolean;
+  forceTimeoutReached?: boolean;
 };
 
 const activityByTabId = new Map<number, TabActivity>();
@@ -131,6 +157,213 @@ async function queryTabs(queryInfo: Record<string, unknown>): Promise<QueryTab[]
   });
 }
 
+async function updateTab(tabId: number, updateProperties: Record<string, unknown>): Promise<void> {
+  const tabsApi = chrome.tabs;
+
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+
+    const callback = (): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      const lastError = chrome.runtime.lastError;
+
+      if (lastError) {
+        reject(new Error(lastError.message));
+        return;
+      }
+
+      resolve();
+    };
+
+    try {
+      const maybePromise = tabsApi.update(
+        tabId as Parameters<typeof tabsApi.update>[0],
+        updateProperties as Parameters<typeof tabsApi.update>[1],
+        callback as Parameters<typeof tabsApi.update>[2]
+      ) as Promise<unknown> | void;
+
+      if (maybePromise && typeof maybePromise.then === "function") {
+        maybePromise
+          .then(() => {
+            if (settled) {
+              return;
+            }
+
+            settled = true;
+            resolve();
+          })
+          .catch((error: unknown) => {
+            if (settled) {
+              return;
+            }
+
+            settled = true;
+            reject(error instanceof Error ? error : new Error(String(error)));
+          });
+      }
+    } catch (error) {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+}
+
+function getSyntheticTimedOutActivity(nowMinute: number): Pick<TabActivity, "lastActiveAtMinute" | "lastUpdatedAtMinute"> {
+  const eligibleReferenceMinute = Math.max(0, nowMinute - DEFAULT_SETTINGS.idleMinutes);
+
+  return {
+    lastActiveAtMinute: eligibleReferenceMinute,
+    lastUpdatedAtMinute: eligibleReferenceMinute
+  };
+}
+
+function buildPolicyInput(
+  tab: QueryTab,
+  nowMinute: number,
+  options: SuspendEvaluationOptions = {}
+): PolicyEvaluatorInput {
+  const tabId = isValidId(tab.id) ? tab.id : null;
+  const activity = options.forceTimeoutReached
+    ? getSyntheticTimedOutActivity(nowMinute)
+    : tabId === null
+      ? null
+      : activityByTabId.get(tabId) ?? null;
+
+  return {
+    tab: {
+      active: options.ignoreActive ? false : tab.active === true,
+      pinned: tab.pinned === true,
+      audible: tab.audible === true,
+      url: tab.url
+    },
+    activity,
+    settings: DEFAULT_SETTINGS,
+    nowMinute,
+    flags: {
+      excludedHost: false,
+      urlTooLong: false
+    }
+  };
+}
+
+function sanitizeSuspendedTitle(title: unknown): string {
+  if (typeof title !== "string") {
+    return "";
+  }
+
+  return title.trim().slice(0, MAX_SUSPENDED_TITLE_LENGTH);
+}
+
+function buildSuspendPayload(tab: QueryTab, nowMinute: number): SuspendPayload | null {
+  if (typeof tab.url !== "string" || tab.url.trim().length === 0) {
+    return null;
+  }
+
+  return {
+    u: tab.url,
+    t: sanitizeSuspendedTitle(tab.title),
+    ts: nowMinute
+  };
+}
+
+function encodeSuspendedUrl(payload: SuspendPayload): string {
+  const params = new URLSearchParams();
+  params.set("u", payload.u);
+  params.set("t", payload.t);
+  params.set("ts", String(payload.ts));
+
+  if (chrome?.runtime && typeof chrome.runtime.getURL === "function") {
+    const destinationUrl = new URL(chrome.runtime.getURL("suspended.html"));
+    destinationUrl.search = params.toString();
+    return destinationUrl.toString();
+  }
+
+  return `suspended.html?${params.toString()}`;
+}
+
+async function suspendTabIfEligible(
+  tab: QueryTab,
+  nowMinute: number,
+  options: SuspendEvaluationOptions = {}
+): Promise<void> {
+  if (!isValidId(tab.id)) {
+    return;
+  }
+
+  const decision = evaluateSuspendDecision(buildPolicyInput(tab, nowMinute, options));
+
+  if (!decision.shouldSuspend) {
+    return;
+  }
+
+  const payload = buildSuspendPayload(tab, nowMinute);
+
+  if (!payload) {
+    log("Skipped eligible suspend candidate due missing URL payload.", { tabId: tab.id });
+    return;
+  }
+
+  try {
+    await updateTab(tab.id, { url: encodeSuspendedUrl(payload) });
+    markTabUpdated(tab.id, tab.windowId, nowMinute);
+  } catch (error) {
+    log("Failed to suspend tab.", {
+      tabId: tab.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
+async function runSuspendSweep(nowMinute = getCurrentEpochMinute()): Promise<void> {
+  let tabs: QueryTab[];
+
+  try {
+    tabs = await queryTabs({});
+  } catch (error) {
+    log("Failed to query tabs for suspend sweep.", error);
+    return;
+  }
+
+  for (const tab of tabs) {
+    await suspendTabIfEligible(tab, nowMinute);
+  }
+}
+
+async function suspendFromAction(tab: QueryTab | undefined, nowMinute = getCurrentEpochMinute()): Promise<void> {
+  if (!tab) {
+    return;
+  }
+
+  await suspendTabIfEligible(tab, nowMinute, {
+    ignoreActive: true,
+    forceTimeoutReached: true
+  });
+}
+
+function scheduleSuspendSweepAlarm(): void {
+  const alarmsApi = chrome.alarms;
+
+  if (!alarmsApi || typeof alarmsApi.create !== "function") {
+    return;
+  }
+
+  try {
+    alarmsApi.create(SUSPEND_SWEEP_ALARM, {
+      periodInMinutes: SUSPEND_SWEEP_PERIOD_MINUTES
+    });
+  } catch (error) {
+    log("Failed to schedule suspend sweep alarm.", error);
+  }
+}
+
 async function seedActiveTabsOnStartup(): Promise<void> {
   try {
     const tabs = await queryTabs({ active: true });
@@ -145,11 +378,13 @@ async function seedActiveTabsOnStartup(): Promise<void> {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  log("Installed extension with activity tracking enabled.");
+  log("Installed extension with suspend sweep enabled.");
+  scheduleSuspendSweepAlarm();
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  log("Startup detected. Activity listeners are active.");
+  log("Startup detected. Activity listeners and suspend sweep are active.");
+  scheduleSuspendSweepAlarm();
 });
 
 chrome.tabs.onActivated.addListener((activeInfo: ActivatedInfo) => {
@@ -213,6 +448,18 @@ chrome.tabs.onReplaced.addListener((addedTabId: number, removedTabId: number) =>
   markTabUpdated(addedTabId, undefined, minute);
 });
 
+chrome.alarms.onAlarm.addListener((alarm: AlarmInfo | undefined) => {
+  if (alarm?.name !== SUSPEND_SWEEP_ALARM) {
+    return;
+  }
+
+  void runSuspendSweep();
+});
+
+chrome.action.onClicked.addListener((tab: QueryTab | undefined) => {
+  void suspendFromAction(tab);
+});
+
 chrome.runtime.onMessage.addListener(
   (
     message: unknown,
@@ -230,6 +477,7 @@ chrome.runtime.onMessage.addListener(
   }
 );
 
+scheduleSuspendSweepAlarm();
 void seedActiveTabsOnStartup();
 
 export const __testing = {
@@ -240,5 +488,11 @@ export const __testing = {
   },
   resetActivityState(): void {
     activityByTabId.clear();
+  },
+  runSuspendSweep(nowMinute?: number): Promise<void> {
+    return runSuspendSweep(nowMinute);
+  },
+  buildSuspendedUrl(payload: SuspendPayload): string {
+    return encodeSuspendedUrl(payload);
   }
 };

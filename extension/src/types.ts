@@ -27,6 +27,12 @@ export interface TabActivity {
   lastUpdatedAtMinute: number;
 }
 
+export interface SuspendPayload {
+  u: string;
+  t: string;
+  ts: number;
+}
+
 export interface PolicyTabSnapshot {
   active: boolean;
   pinned: boolean;
