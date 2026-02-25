@@ -53,7 +53,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 0: Roadmap and Governance ([details](docs/plans/plan-0-roadmap-governance.md))
 - [x] Plan 1: Scaffold and Skeleton ([details](docs/plans/plan-1-scaffold-skeleton.md))
 - [x] Plan 2: Background Event Wiring ([details](docs/plans/plan-2-background-event-wiring.md))
-- [ ] Plan 3: Policy Engine + Unit Tests ([details](docs/plans/plan-3-policy-engine.md))
+- [x] Plan 3: Policy Engine + Unit Tests ([details](docs/plans/plan-3-policy-engine.md))
 - [ ] Plan 4: Suspend Action + Lightweight Suspended Screen ([details](docs/plans/plan-4-suspend-action.md))
 - [ ] Plan 5: Restore Flow + URL Safety Guards ([details](docs/plans/plan-5-restore-flow.md))
 - [ ] Plan 6: Essential Settings UI and Persistence ([details](docs/plans/plan-6-settings-ui.md))
@@ -98,6 +98,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-008**: Runtime JavaScript output is canonicalized to `build/extension`; `extension/` is source and static assets only.
   - Alternatives: maintain duplicate runtime JS in both `extension/` and `build/extension`.
   - Impact: single compilation target and reduced drift risk.
+- **D-009**: Policy evaluator precedence is fixed and deterministic, with idle timeout based on `max(lastActiveAtMinute, lastUpdatedAtMinute)`.
+  - Alternatives: configurable or multi-reason precedence, activity-source-specific idle semantics.
+  - Impact: predictable behavior and stable policy assertions across Plans 3-7.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -105,3 +108,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-25: Restored roadmap rules/hints sections; kept only plan implementation details in `docs/plans/`.
 - 2026-02-25: Completed Plan 2 background event wiring with minute-level activity tracking and tests.
 - 2026-02-25: Consolidated runtime build pipeline to a single output path (`build/extension`).
+- 2026-02-25: Completed Plan 3 policy engine with deterministic decision matrix and unit tests.

@@ -26,3 +26,21 @@ export interface TabActivity {
   lastActiveAtMinute: number;
   lastUpdatedAtMinute: number;
 }
+
+export interface PolicyTabSnapshot {
+  active: boolean;
+  pinned: boolean;
+  audible: boolean;
+  url?: string | null;
+}
+
+export interface PolicyEvaluatorInput {
+  tab: PolicyTabSnapshot;
+  activity?: Pick<TabActivity, "lastActiveAtMinute" | "lastUpdatedAtMinute"> | null;
+  settings: Settings;
+  nowMinute: number;
+  flags?: {
+    excludedHost?: boolean;
+    urlTooLong?: boolean;
+  };
+}
