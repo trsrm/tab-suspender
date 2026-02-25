@@ -22,7 +22,7 @@ function createEvent() {
   };
 }
 
-function createChromeMock({ queryResponder = () => [], updateResponder = () => ({}) } = {}) {
+function createChromeMock({ queryResponder = () => [], updateResponder = () => ({}), storageSeed = {} } = {}) {
   const runtimeOnInstalled = createEvent();
   const runtimeOnStartup = createEvent();
   const runtimeOnMessage = createEvent();
@@ -35,10 +35,14 @@ function createChromeMock({ queryResponder = () => [], updateResponder = () => (
   const windowsOnFocusChanged = createEvent();
   const alarmsOnAlarm = createEvent();
   const actionOnClicked = createEvent();
+  const storageOnChanged = createEvent();
 
   const queryCalls = [];
   const tabsUpdateCalls = [];
   const alarmCreateCalls = [];
+  const storageGetCalls = [];
+  const storageSetCalls = [];
+  const storageData = { ...storageSeed };
 
   const chromeMock = {
     runtime: {
@@ -106,6 +110,33 @@ function createChromeMock({ queryResponder = () => [], updateResponder = () => (
     },
     action: {
       onClicked: actionOnClicked
+    },
+    storage: {
+      onChanged: storageOnChanged,
+      local: {
+        get(key, callback) {
+          storageGetCalls.push(key);
+          const result = typeof key === "string" ? { [key]: storageData[key] } : {};
+
+          return Promise.resolve().then(() => {
+            if (callback) {
+              callback(result);
+            }
+
+            return result;
+          });
+        },
+        set(items, callback) {
+          storageSetCalls.push(items);
+          Object.assign(storageData, items);
+
+          return Promise.resolve().then(() => {
+            if (callback) {
+              callback();
+            }
+          });
+        }
+      }
     }
   };
 
@@ -121,12 +152,16 @@ function createChromeMock({ queryResponder = () => [], updateResponder = () => (
       tabsOnReplaced,
       windowsOnFocusChanged,
       alarmsOnAlarm,
-      actionOnClicked
+      actionOnClicked,
+      storageOnChanged
     },
     calls: {
       queryCalls,
       tabsUpdateCalls,
-      alarmCreateCalls
+      alarmCreateCalls,
+      storageGetCalls,
+      storageSetCalls,
+      storageData
     }
   };
 }

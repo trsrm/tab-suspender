@@ -1,6 +1,7 @@
 import { evaluateSuspendDecision } from "./policy.js";
 import type { PolicyEvaluatorInput, Settings, SuspendPayload, TabActivity } from "./types.js";
 import { validateRestorableUrl } from "./url-safety.js";
+import { DEFAULT_SETTINGS, SETTINGS_STORAGE_KEY, decodeStoredSettings, loadSettingsFromStorage } from "./settings-store.js";
 
 const LOG_PREFIX = "[tab-suspender]";
 const MINUTE_MS = 60_000;
@@ -8,13 +9,6 @@ const WINDOW_ID_NONE = -1;
 const MAX_SUSPENDED_TITLE_LENGTH = 120;
 const SUSPEND_SWEEP_ALARM = "suspend-sweep-v1";
 const SUSPEND_SWEEP_PERIOD_MINUTES = 1;
-
-const DEFAULT_SETTINGS: Settings = Object.freeze({
-  idleMinutes: 60,
-  excludedHosts: [],
-  skipPinned: true,
-  skipAudible: true
-});
 
 type QueryTab = {
   id?: number;
@@ -35,12 +29,24 @@ type AlarmInfo = {
   name?: string;
 };
 
+type StorageChange = {
+  newValue?: unknown;
+  oldValue?: unknown;
+};
+
 type SuspendEvaluationOptions = {
   ignoreActive?: boolean;
   forceTimeoutReached?: boolean;
 };
 
 const activityByTabId = new Map<number, TabActivity>();
+let currentSettings: Settings = {
+  idleMinutes: DEFAULT_SETTINGS.idleMinutes,
+  excludedHosts: [...DEFAULT_SETTINGS.excludedHosts],
+  skipPinned: DEFAULT_SETTINGS.skipPinned,
+  skipAudible: DEFAULT_SETTINGS.skipAudible
+};
+let settingsReady: Promise<void> = Promise.resolve();
 
 function log(message: string, details?: unknown): void {
   if (details === undefined) {
@@ -57,6 +63,42 @@ function getCurrentEpochMinute(): number {
 
 function isValidId(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+function cloneSettings(settings: Settings): Settings {
+  return {
+    idleMinutes: settings.idleMinutes,
+    excludedHosts: [...settings.excludedHosts],
+    skipPinned: settings.skipPinned,
+    skipAudible: settings.skipAudible
+  };
+}
+
+function applyStoredSettingsValue(value: unknown): void {
+  currentSettings = decodeStoredSettings(value);
+}
+
+async function hydrateSettingsFromStorage(): Promise<void> {
+  try {
+    currentSettings = await loadSettingsFromStorage();
+  } catch (error) {
+    currentSettings = cloneSettings(DEFAULT_SETTINGS);
+    log("Failed to load settings from storage. Falling back to defaults.", error);
+  }
+}
+
+function handleStorageSettingsChange(changes: Record<string, StorageChange> | undefined, areaName: string): void {
+  if (areaName !== "local" || !changes) {
+    return;
+  }
+
+  const settingsChange = changes[SETTINGS_STORAGE_KEY];
+
+  if (!settingsChange) {
+    return;
+  }
+
+  applyStoredSettingsValue(settingsChange.newValue);
 }
 
 function upsertActivity(tabId: number, windowId: number | undefined, minute: number): TabActivity {
@@ -218,7 +260,7 @@ async function updateTab(tabId: number, updateProperties: Record<string, unknown
 }
 
 function getSyntheticTimedOutActivity(nowMinute: number): Pick<TabActivity, "lastActiveAtMinute" | "lastUpdatedAtMinute"> {
-  const eligibleReferenceMinute = Math.max(0, nowMinute - DEFAULT_SETTINGS.idleMinutes);
+  const eligibleReferenceMinute = Math.max(0, nowMinute - currentSettings.idleMinutes);
 
   return {
     lastActiveAtMinute: eligibleReferenceMinute,
@@ -248,7 +290,7 @@ function buildPolicyInput(
       url: tab.url
     },
     activity,
-    settings: DEFAULT_SETTINGS,
+    settings: currentSettings,
     nowMinute,
     flags: {
       excludedHost: false,
@@ -328,6 +370,8 @@ async function suspendTabIfEligible(
 }
 
 async function runSuspendSweep(nowMinute = getCurrentEpochMinute()): Promise<void> {
+  await settingsReady;
+
   let tabs: QueryTab[];
 
   try {
@@ -343,6 +387,8 @@ async function runSuspendSweep(nowMinute = getCurrentEpochMinute()): Promise<voi
 }
 
 async function suspendFromAction(tab: QueryTab | undefined, nowMinute = getCurrentEpochMinute()): Promise<void> {
+  await settingsReady;
+
   if (!tab) {
     return;
   }
@@ -465,6 +511,14 @@ chrome.action.onClicked.addListener((tab: QueryTab | undefined) => {
   void suspendFromAction(tab);
 });
 
+if (chrome.storage?.onChanged && typeof chrome.storage.onChanged.addListener === "function") {
+  chrome.storage.onChanged.addListener(
+    (changes: Record<string, StorageChange> | undefined, areaName: string | undefined) => {
+      handleStorageSettingsChange(changes, areaName ?? "");
+    }
+  );
+}
+
 chrome.runtime.onMessage.addListener(
   (
     message: unknown,
@@ -482,6 +536,7 @@ chrome.runtime.onMessage.addListener(
   }
 );
 
+settingsReady = hydrateSettingsFromStorage();
 scheduleSuspendSweepAlarm();
 void seedActiveTabsOnStartup();
 
@@ -496,6 +551,12 @@ export const __testing = {
   },
   runSuspendSweep(nowMinute?: number): Promise<void> {
     return runSuspendSweep(nowMinute);
+  },
+  waitForSettingsHydration(): Promise<void> {
+    return settingsReady;
+  },
+  getCurrentSettings(): Settings {
+    return cloneSettings(currentSettings);
   },
   buildSuspendedUrl(payload: SuspendPayload): string {
     return encodeSuspendedUrl(payload);

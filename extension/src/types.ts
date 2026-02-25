@@ -5,6 +5,13 @@ export interface Settings {
   skipAudible: boolean;
 }
 
+export type SettingsSchemaVersion = 1;
+
+export interface StoredSettingsV1 {
+  schemaVersion: SettingsSchemaVersion;
+  settings: Settings;
+}
+
 export type SuspendReason =
   | "eligible"
   | "active"
