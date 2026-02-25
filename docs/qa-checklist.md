@@ -31,17 +31,19 @@ A local-ready build requires:
 | M-08 | Restore valid URL | Open suspended page with valid payload and click restore | Navigation to original URL | not-run | Requires interactive Safari session |
 | M-09 | Restore invalid/missing URL | Open suspended page with missing/invalid URL | Restore button disabled with clear status | not-run | Requires interactive Safari session |
 | M-10 | Restore oversized URL | Open suspended page with >2048 char URL payload | Restore button disabled with oversized URL status | not-run | Requires interactive Safari session |
+| M-11 | Suspended title and URL context | Open suspended page with long original title + long URL | Heading and browser tab title show previous page title (cropped), URL line is ellipsized with full value in tooltip | not-run | Requires interactive Safari session |
+| M-12 | URL copy + icon visibility | Click URL line on suspended page and inspect extension chrome | Clipboard receives original URL; icon appears in toolbar/action and suspended page header | not-run | Requires interactive Safari session |
 
 ## Automated Evidence (2026-02-25)
 - `npm run typecheck`
   - Result: pass (`tsc -p tsconfig.json --noEmit`).
 - `npm run test`
-  - Result: pass (`57` tests, `57` pass, `0` fail).
+  - Result: pass (`60` tests, `60` pass, `0` fail).
 
 ## Manual Evidence (2026-02-25)
 - Result: blocked in this environment (non-interactive Codex run, Safari UI actions unavailable).
 - Impact: automated coverage is strong, but interactive Safari behavior still requires operator confirmation.
-- Required follow-up: run M-01..M-10 on a local Safari session and record pass/fail in this file before final distribution.
+- Required follow-up: run M-01..M-12 on a local Safari session and record pass/fail in this file before final distribution.
 
 ## Troubleshooting Matrix
 | Symptom | Likely Cause | Verification | Action |
@@ -55,5 +57,5 @@ A local-ready build requires:
 ## Exit Rule
 Plan 8 local-readiness gate is complete only when:
 - Automated gate is passing.
-- Manual matrix M-01..M-10 has explicit `pass`/`fail` values.
+- Manual matrix M-01..M-12 has explicit `pass`/`fail` values.
 - Any failures are tracked as follow-up plans.

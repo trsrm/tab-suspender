@@ -17,13 +17,14 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 - `extension/src/options.ts`
   - Options page load/save flow, validation, and status messaging.
 - `extension/src/suspended.ts`
-  - Suspended page payload parsing, status rendering, and guarded restore action.
+  - Suspended page payload parsing, previous-title context rendering, URL copy feedback, and guarded restore action.
 - `extension/src/types.ts`
   - Shared settings, activity, policy, and payload interfaces.
 
 ## Build and Packaging Flow
 - Source lives in `extension/`.
 - `npm run build` compiles TypeScript and copies static assets into `build/extension/`.
+- Static icon assets under `extension/icons/` are copied into `build/extension/icons/` during build.
 - Runtime JS in `build/extension/` is canonical for local import/testing.
 
 ## Data Flow

@@ -30,6 +30,9 @@
       h1 {
         margin: 0 0 12px;
         font-size: 1.4rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       p {
@@ -37,20 +40,63 @@
         line-height: 1.45;
       }
 
-      button {
+      .url-button {
+        margin: 0 0 10px;
+        border: 0;
+        background: transparent;
+        color: #0f172a;
+        cursor: copy;
+        padding: 0;
+        text-align: left;
+        width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font: inherit;
+        line-height: 1.45;
+      }
+
+      .url-button:hover {
+        color: #1d4ed8;
+      }
+
+      .url-button:focus-visible {
+        outline: 2px solid #1d4ed8;
+        outline-offset: 2px;
+        border-radius: 4px;
+      }
+
+      #restoreButton {
         margin-top: 6px;
+        margin-bottom: 20px;
         border: 0;
         border-radius: 8px;
-        padding: 10px 14px;
+        padding: 12px 20px;
         background: #0f172a;
         color: #ffffff;
+        font-size: 1.05rem;
+        font-weight: 700;
+      }
+
+      #copyStatus {
+        margin-bottom: 12px;
       }
     </style>
   </head>
   <body>
     <main>
       <h1 id="title">Suspended tab</h1>
-      <p id="summary">Original tab details are loading.</p>
+      <button
+        type="button"
+        id="originalUrl"
+        class="url-button"
+        aria-label="Copy original URL"
+        title="Original URL is unavailable."
+        disabled
+      >
+        Original URL is unavailable.
+      </button>
+      <p id="copyStatus" role="status" aria-live="polite"></p>
       <p id="capturedAt">Capture time unavailable.</p>
       <button type="button" id="restoreButton" aria-label="Restore tab" disabled>Restore Tab</button>
       <p id="status" role="status" aria-live="polite">Checking restore data.</p>

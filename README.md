@@ -3,7 +3,7 @@
 A privacy-first Safari Web Extension that suspends idle tabs and restores them safely.
 
 ## Current Status
-- Plan 0-9 are implemented.
+- Plan 0-10 are implemented.
 - Local QA hardening is documented in `docs/qa-checklist.md` and `docs/plans/plan-8-qa-hardening.md`.
 - v1 target remains macOS Safari with no telemetry.
 
@@ -12,7 +12,8 @@ A privacy-first Safari Web Extension that suspends idle tabs and restores them s
 - Toolbar action click can suspend the current tab immediately by bypassing only `active` + timeout checks.
 - Policy safety guards skip active, pinned (optional), audible (optional), internal URLs, excluded hosts, and oversized URLs.
 - Suspended-page payload includes original URL, title (trimmed/capped), and capture timestamp (minute precision).
-- Restore flow validates URL safety (`http/https`, max 2048 chars) before navigation.
+- Suspended page uses previous tab title context, shows full original URL with click-to-copy feedback, and keeps URL display cropped to one line for readability.
+- Restore flow validates URL safety (`http/https`, max 2048 chars) before navigation, and restore enablement remains validator-gated.
 - Settings are versioned in `chrome.storage.local` under `settings` with runtime live updates via `storage.onChanged`.
 - Host exclusions support exact hosts (`example.com`) and wildcard subdomain rules (`*.example.com`, subdomains only).
 

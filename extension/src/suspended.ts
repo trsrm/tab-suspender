@@ -3,9 +3,14 @@ import { validateRestorableUrl } from "./url-safety.js";
 
 const MINUTE_MS = 60_000;
 const MAX_TITLE_LENGTH = 120;
+const MAX_DOCUMENT_TITLE_LENGTH = 80;
+const DEFAULT_TITLE = "Suspended tab";
+const URL_UNAVAILABLE_TEXT = "Original URL is unavailable.";
 const STATUS_READY = "Ready to restore this tab.";
 const STATUS_RESTORING = "Restoring tab...";
 const STATUS_RESTORE_FAILED = "Restore failed. Please try again.";
+const COPY_STATUS_OK = "Original URL copied to clipboard.";
+const COPY_STATUS_FAILED = "Could not copy URL. Copy manually.";
 
 function getSearchParams(): URLSearchParams {
   const search = typeof globalThis.location?.search === "string" ? globalThis.location.search : "";
@@ -22,17 +27,26 @@ function parseSuspendPayload(params: URLSearchParams): SuspendPayload {
   };
 }
 
-function getUrlSummary(url: string): string {
-  if (url.length === 0) {
-    return "Original URL is unavailable.";
+function getDisplayTitle(title: string): string {
+  return title.length > 0 ? title : DEFAULT_TITLE;
+}
+
+function getDocumentTitle(title: string): string {
+  return title.slice(0, MAX_DOCUMENT_TITLE_LENGTH);
+}
+
+function getDisplayUrl(url: string, restorableUrl: string | null): string {
+  if (restorableUrl !== null) {
+    return restorableUrl;
   }
 
-  try {
-    const parsed = new URL(url);
-    return `Original tab: ${parsed.host}`;
-  } catch {
-    return `Original tab: ${url.slice(0, 160)}`;
+  const trimmedUrl = url.trim();
+
+  if (trimmedUrl.length === 0) {
+    return URL_UNAVAILABLE_TEXT;
   }
+
+  return trimmedUrl;
 }
 
 function formatCapturedAt(ts: number): string {
@@ -65,18 +79,31 @@ const params = getSearchParams();
 const payload = parseSuspendPayload(params);
 
 const titleEl = document.getElementById("title");
-const summaryEl = document.getElementById("summary");
+const originalUrlEl = document.getElementById("originalUrl") as HTMLButtonElement | null;
+const copyStatusEl = document.getElementById("copyStatus");
 const capturedAtEl = document.getElementById("capturedAt");
 const statusEl = document.getElementById("status");
 const restoreButton = document.getElementById("restoreButton") as HTMLButtonElement | null;
 const restoreUrlValidation = validateRestorableUrl(payload.u);
+const pageTitle = getDisplayTitle(payload.t);
+const displayUrl = getDisplayUrl(payload.u, restoreUrlValidation.ok ? restoreUrlValidation.url : null);
 
-if (titleEl) {
-  titleEl.textContent = payload.t.length > 0 ? payload.t : "Suspended tab";
+function setCopyStatus(status: string): void {
+  if (copyStatusEl) {
+    copyStatusEl.textContent = status;
+  }
 }
 
-if (summaryEl) {
-  summaryEl.textContent = getUrlSummary(payload.u);
+if (titleEl) {
+  titleEl.textContent = pageTitle;
+}
+
+document.title = getDocumentTitle(pageTitle);
+
+if (originalUrlEl) {
+  originalUrlEl.textContent = displayUrl;
+  originalUrlEl.title = displayUrl;
+  originalUrlEl.disabled = displayUrl === URL_UNAVAILABLE_TEXT;
 }
 
 if (capturedAtEl) {
@@ -89,6 +116,26 @@ if (statusEl) {
 
 if (restoreButton) {
   restoreButton.disabled = !restoreUrlValidation.ok;
+}
+
+if (originalUrlEl && displayUrl !== URL_UNAVAILABLE_TEXT) {
+  originalUrlEl.addEventListener("click", () => {
+    const clipboard = globalThis.navigator?.clipboard;
+
+    if (!clipboard || typeof clipboard.writeText !== "function") {
+      setCopyStatus(COPY_STATUS_FAILED);
+      return;
+    }
+
+    void clipboard
+      .writeText(displayUrl)
+      .then(() => {
+        setCopyStatus(COPY_STATUS_OK);
+      })
+      .catch(() => {
+        setCopyStatus(COPY_STATUS_FAILED);
+      });
+  });
 }
 
 if (restoreButton && restoreUrlValidation.ok) {

@@ -60,7 +60,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 7: Domain Exclusions With Wildcards ([details](docs/plans/plan-7-domain-exclusions.md))
 - [x] Plan 8: QA Hardening and Release Readiness (Local) ([details](docs/plans/plan-8-qa-hardening.md))
 - [x] Plan 9: Technical debt and contributor docs (CONTRIBUTING, code comments, cleanup) ([details](docs/plans/plan-9-technical-debt-contributor-docs.md))
-- [ ] Plan 10: (draft) UX polish (copy URL on click, icon for extension, etc).
+- [x] Plan 10: Suspended page UX polish + extension icon coverage ([details](docs/plans/plan-10-suspended-page-ux-polish-and-extension-icon.md))
 - [ ] Plan 11: (draft) Analyze project for KISS, YAGNI, DRY, performance, reliability, simplicity, over-engineering, and other anti-patterns; create separate plans for each perspective (don't do any changes).
 - [ ] Plan 12: (draft) Analyze and suggest features, create separate plans for each feature, but do not implement any of them.
 
@@ -120,6 +120,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-014**: Plan 8 QA gate evidence is tracked in both `docs/qa-checklist.md` and the Plan 8 file, with manual Safari steps explicitly marked when blocked (never implied as passed).
   - Alternatives: automated-only release gate, or undocumented manual checks.
   - Impact: auditable readiness reporting with clear residual-risk visibility.
+- **D-015**: Suspended page UX now prioritizes full original URL visibility/copyability and previous page title context, while keeping restore eligibility strictly tied to URL safety validation.
+  - Alternatives: host-only summary text, static suspended-page document title, and no explicit copy interaction.
+  - Impact: better restore context and usability without weakening Plan 5 safety guardrails.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -134,3 +137,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-25: Completed Plan 7 domain exclusions with exact/wildcard host matching, options-side invalid-entry handling, and runtime policy integration for sweep/action-click safety.
 - 2026-02-25: Completed Plan 8 QA hardening with updated docs, deterministic local regression checklist, and recorded release-readiness evidence/residual risks.
 - 2026-02-25: Completed Plan 9 technical debt cleanup with contributor documentation, centralized background callback/Promise compatibility handling, and shared background test harness utilities.
+- 2026-02-25: Completed Plan 10 suspended-page UX polish with title/document-title improvements, URL copy interaction, stronger restore CTA styling, and extension icon wiring.
