@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 const REAL_DATE_NOW = Date.now;
 const BACKGROUND_MODULE_PATH = path.resolve("build/extension/background.js");
 const TOO_LONG_URL = `https://example.com/${"a".repeat(2100)}`;
+const SETTINGS_STORAGE_KEY = "settings";
 
 function createEvent() {
   const listeners = [];
@@ -354,6 +355,80 @@ test("action click still skips pinned, audible, and internal URLs", { concurrenc
   await flushAsyncWork();
 
   assert.equal(calls.tabsUpdateCalls.length, 0);
+});
+
+test("action click skips exact excluded hosts", { concurrency: false }, async () => {
+  setNowMinute(122);
+
+  const { events, calls, backgroundModule } = await importBackgroundWithMock({
+    storageSeed: {
+      [SETTINGS_STORAGE_KEY]: {
+        schemaVersion: 1,
+        settings: {
+          idleMinutes: 60,
+          excludedHosts: ["example.com"],
+          skipPinned: true,
+          skipAudible: true
+        }
+      }
+    }
+  });
+
+  await backgroundModule.__testing.waitForSettingsHydration();
+  backgroundModule.__testing.resetActivityState();
+
+  events.actionOnClicked.dispatch({
+    id: 130,
+    active: true,
+    pinned: false,
+    audible: false,
+    url: "https://example.com/blocked"
+  });
+
+  await flushAsyncWork();
+
+  assert.equal(calls.tabsUpdateCalls.length, 0);
+});
+
+test("action click applies wildcard exclusions to subdomains only", { concurrency: false }, async () => {
+  setNowMinute(123);
+
+  const { events, calls, backgroundModule } = await importBackgroundWithMock({
+    storageSeed: {
+      [SETTINGS_STORAGE_KEY]: {
+        schemaVersion: 1,
+        settings: {
+          idleMinutes: 60,
+          excludedHosts: ["*.example.com"],
+          skipPinned: true,
+          skipAudible: true
+        }
+      }
+    }
+  });
+
+  await backgroundModule.__testing.waitForSettingsHydration();
+  backgroundModule.__testing.resetActivityState();
+
+  events.actionOnClicked.dispatch({
+    id: 131,
+    active: true,
+    pinned: false,
+    audible: false,
+    url: "https://api.example.com/blocked"
+  });
+  events.actionOnClicked.dispatch({
+    id: 132,
+    active: true,
+    pinned: false,
+    audible: false,
+    url: "https://example.com/allowed-apex"
+  });
+
+  await flushAsyncWork();
+
+  assert.equal(calls.tabsUpdateCalls.length, 1);
+  assert.equal(calls.tabsUpdateCalls[0][0], 132);
 });
 
 test("action click skips URLs above the restorable max length", { concurrency: false }, async () => {

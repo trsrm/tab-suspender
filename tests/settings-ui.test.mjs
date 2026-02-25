@@ -179,7 +179,7 @@ test("options page loads persisted settings values", { concurrency: false }, asy
       schemaVersion: 1,
       settings: {
         idleMinutes: 90,
-        excludedHosts: ["example.com", "news.example.org"],
+        excludedHosts: ["example.com", "*.news.example.org"],
         skipPinned: false,
         skipAudible: true
       }
@@ -189,7 +189,7 @@ test("options page loads persisted settings values", { concurrency: false }, asy
   assert.equal(elements.idleMinutes.value, "90");
   assert.equal(elements.skipPinned.checked, false);
   assert.equal(elements.skipAudible.checked, true);
-  assert.equal(elements.excludedHosts.value, "example.com\nnews.example.org");
+  assert.equal(elements.excludedHosts.value, "example.com\n*.news.example.org");
   assert.equal(elements.status.textContent, "Settings loaded.");
 });
 
@@ -217,6 +217,28 @@ test("save writes versioned sanitized settings payload", { concurrency: false },
   });
   assert.equal(elements.status.textContent, "Settings saved.");
   assert.equal(elements.idleMinutesError.hidden, true);
+});
+
+test("save ignores invalid excluded host entries with non-blocking status", { concurrency: false }, async () => {
+  const { elements, storageData } = await importOptionsWithMocks();
+
+  elements.idleMinutes.value = "45";
+  elements.excludedHosts.value = "example.com\n*.news.example.com\nhttps://bad.com\nbad host\n*bad.com";
+
+  elements.settingsForm.submit();
+  await flushAsyncWork();
+  await flushAsyncWork();
+
+  assert.deepEqual(storageData[SETTINGS_STORAGE_KEY], {
+    schemaVersion: 1,
+    settings: {
+      idleMinutes: 45,
+      excludedHosts: ["example.com", "*.news.example.com"],
+      skipPinned: true,
+      skipAudible: true
+    }
+  });
+  assert.equal(elements.status.textContent, "Settings saved. Ignored 3 invalid excluded host entries.");
 });
 
 test("invalid idle minutes blocks save and shows field error", { concurrency: false }, async () => {

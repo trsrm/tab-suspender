@@ -57,8 +57,13 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 4: Suspend Action + Lightweight Suspended Screen ([details](docs/plans/plan-4-suspend-action.md))
 - [x] Plan 5: Restore Flow + URL Safety Guards ([details](docs/plans/plan-5-restore-flow.md))
 - [x] Plan 6: Essential Settings UI and Persistence ([details](docs/plans/plan-6-settings-ui.md))
-- [ ] Plan 7: Domain Exclusions With Wildcards ([details](docs/plans/plan-7-domain-exclusions.md))
+- [x] Plan 7: Domain Exclusions With Wildcards ([details](docs/plans/plan-7-domain-exclusions.md))
 - [ ] Plan 8: QA Hardening and Release Readiness (Local) ([details](docs/plans/plan-8-qa-hardening.md))
+- [ ] Plan 8: QA Hardening and Release Readiness (Local) ([details](docs/plans/plan-8-qa-hardening.md))
+- [ ] Plan 9: (draft) Documentation and technical debt (user-readable README, CONTRIBUTING, code comments, and cleanup)
+- [ ] Plan 10: (draft) UX polish (copy URL on click, icon for extension, etc).
+- [ ] Plan 11: (draft) Analyze project for KISS, YAGNI, DRY, performance, reliability, simplicity, over-engineering, and other anti-patterns; create separate plans for each perspective (don't do any changes).
+- [ ] Plan 12: (draft) Analyze and suggest features, create separate plans for each feature, but do not implement any of them.
 
 ## Governance Rules
 - Execute one plan per implementation turn.
@@ -110,6 +115,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-012**: Settings persistence is versioned in `chrome.storage.local` using a single envelope key (`settings`) with live background updates via `storage.onChanged`.
   - Alternatives: unversioned flat keys, startup-only settings load, or split keys per field.
   - Impact: migration-ready storage shape, centralized validation/sanitization, and deterministic runtime settings behavior without restart.
+- **D-013**: Domain exclusions support exact host and subdomain-only wildcard (`*.example.com`) rules, with invalid entries dropped while valid entries are still persisted.
+  - Alternatives: apex-inclusive wildcard semantics, strict save-blocking on any invalid entry, or exact-only matching.
+  - Impact: deterministic host exclusion behavior with low-friction settings UX and strong policy-level safety.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -121,3 +129,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-25: Completed Plan 4 suspend action flow with alarm-driven sweep, action-click suspend, payload encoding, and suspended-page decoding.
 - 2026-02-25: Completed Plan 5 restore flow with shared URL validation (`http/https` + 2048-char max), safe suspended-page restore interaction, and oversized URL guardrails.
 - 2026-02-25: Completed Plan 6 settings UI and persistence with schema-versioned local storage, explicit Save flow, and live runtime settings hydration/update handling.
+- 2026-02-25: Completed Plan 7 domain exclusions with exact/wildcard host matching, options-side invalid-entry handling, and runtime policy integration for sweep/action-click safety.

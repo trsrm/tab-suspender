@@ -2,6 +2,7 @@ import { evaluateSuspendDecision } from "./policy.js";
 import type { PolicyEvaluatorInput, Settings, SuspendPayload, TabActivity } from "./types.js";
 import { validateRestorableUrl } from "./url-safety.js";
 import { DEFAULT_SETTINGS, SETTINGS_STORAGE_KEY, decodeStoredSettings, loadSettingsFromStorage } from "./settings-store.js";
+import { isExcludedUrlByHost } from "./matcher.js";
 
 const LOG_PREFIX = "[tab-suspender]";
 const MINUTE_MS = 60_000;
@@ -293,7 +294,7 @@ function buildPolicyInput(
     settings: currentSettings,
     nowMinute,
     flags: {
-      excludedHost: false,
+      excludedHost: isExcludedUrlByHost(tab.url ?? null, currentSettings.excludedHosts),
       urlTooLong: urlValidation.ok ? false : urlValidation.reason === "tooLong"
     }
   };

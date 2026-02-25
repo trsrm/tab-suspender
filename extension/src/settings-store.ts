@@ -1,4 +1,5 @@
 import type { Settings, SettingsSchemaVersion, StoredSettingsV1 } from "./types.js";
+import { normalizeExcludedHostEntries } from "./matcher.js";
 
 export const SETTINGS_STORAGE_KEY = "settings";
 export const SETTINGS_SCHEMA_VERSION: SettingsSchemaVersion = 1;
@@ -77,52 +78,17 @@ function sanitizeBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
-function normalizeExcludedHosts(candidates: string[]): string[] {
-  const normalizedHosts: string[] = [];
-  const seen = new Set<string>();
-
-  for (const candidate of candidates) {
-    const normalized = candidate.trim().toLowerCase();
-
-    if (normalized.length === 0 || normalized.length > MAX_EXCLUDED_HOST_LENGTH || seen.has(normalized)) {
-      continue;
-    }
-
-    seen.add(normalized);
-    normalizedHosts.push(normalized);
-
-    if (normalizedHosts.length >= MAX_EXCLUDED_HOSTS) {
-      break;
-    }
-  }
-
-  return normalizedHosts;
-}
-
-function splitHostEntries(value: string): string[] {
-  return value.split(/[\n,]/g);
-}
-
 function sanitizeExcludedHosts(value: unknown, fallback: string[]): string[] {
-  if (Array.isArray(value)) {
-    const candidates: string[] = [];
+  const normalized = normalizeExcludedHostEntries(value, {
+    maxEntries: MAX_EXCLUDED_HOSTS,
+    maxHostLength: MAX_EXCLUDED_HOST_LENGTH
+  });
 
-    for (const entry of value) {
-      if (typeof entry !== "string") {
-        continue;
-      }
-
-      candidates.push(...splitHostEntries(entry));
-    }
-
-    return normalizeExcludedHosts(candidates);
+  if (!Array.isArray(value) && typeof value !== "string") {
+    return [...fallback];
   }
 
-  if (typeof value === "string") {
-    return normalizeExcludedHosts(splitHostEntries(value));
-  }
-
-  return [...fallback];
+  return normalized.normalizedHosts;
 }
 
 export function sanitizeSettings(value: unknown, fallback: Settings = DEFAULT_SETTINGS): Settings {

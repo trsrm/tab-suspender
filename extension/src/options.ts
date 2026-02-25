@@ -1,10 +1,13 @@
 import {
   DEFAULT_SETTINGS,
+  MAX_EXCLUDED_HOST_LENGTH,
+  MAX_EXCLUDED_HOSTS,
   MAX_IDLE_MINUTES,
   MIN_IDLE_MINUTES,
   loadSettingsFromStorage,
   saveSettingsToStorage
 } from "./settings-store.js";
+import { normalizeExcludedHostEntries } from "./matcher.js";
 import type { Settings } from "./types.js";
 
 export {};
@@ -140,16 +143,29 @@ async function handleSave(elements: OptionsElements): Promise<void> {
   setBusy(elements, true);
   setStatus(elements, "Saving settings...");
 
+  const normalizedExcludedHosts = normalizeExcludedHostEntries(elements.excludedHostsInput.value, {
+    maxEntries: MAX_EXCLUDED_HOSTS,
+    maxHostLength: MAX_EXCLUDED_HOST_LENGTH
+  });
+
   try {
     const persisted = await saveSettingsToStorage({
       idleMinutes: parsedIdleMinutes,
       skipPinned: elements.skipPinnedInput.checked,
       skipAudible: elements.skipAudibleInput.checked,
-      excludedHosts: elements.excludedHostsInput.value
+      excludedHosts: normalizedExcludedHosts.normalizedHosts
     });
 
     renderSettings(elements, persisted.settings);
-    setStatus(elements, "Settings saved.");
+    if (normalizedExcludedHosts.ignoredInvalidCount > 0) {
+      const suffix = normalizedExcludedHosts.ignoredInvalidCount === 1 ? "entry" : "entries";
+      setStatus(
+        elements,
+        `Settings saved. Ignored ${normalizedExcludedHosts.ignoredInvalidCount} invalid excluded host ${suffix}.`
+      );
+    } else {
+      setStatus(elements, "Settings saved.");
+    }
   } catch {
     setStatus(elements, "Failed to save settings.");
   } finally {

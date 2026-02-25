@@ -297,7 +297,7 @@ test("invalid stored payload falls back to default settings", { concurrency: fal
   });
 });
 
-test("persisted excluded hosts do not alter policy decisions in Plan 6", { concurrency: false }, async () => {
+test("persisted excluded hosts prevent sweep suspend for exact match", { concurrency: false }, async () => {
   setNowMinute(4);
 
   const { events, calls, backgroundModule } = await importBackgroundWithMock({
@@ -306,7 +306,7 @@ test("persisted excluded hosts do not alter policy decisions in Plan 6", { concu
         schemaVersion: 1,
         settings: {
           idleMinutes: 5,
-          excludedHosts: ["example.com"],
+          excludedHosts: ["example.com", "*.news.example.com"],
           skipPinned: true,
           skipAudible: true
         }
@@ -325,7 +325,23 @@ test("persisted excluded hosts do not alter policy decisions in Plan 6", { concu
             active: false,
             pinned: false,
             audible: false,
-            url: "https://example.com/allowed-for-now"
+            url: "https://example.com/excluded-exact"
+          },
+          {
+            id: 94,
+            windowId: 10,
+            active: false,
+            pinned: false,
+            audible: false,
+            url: "https://api.news.example.com/excluded-wildcard"
+          },
+          {
+            id: 95,
+            windowId: 10,
+            active: false,
+            pinned: false,
+            audible: false,
+            url: "https://allowed.example.net/eligible"
           }
         ];
       }
@@ -338,11 +354,14 @@ test("persisted excluded hosts do not alter policy decisions in Plan 6", { concu
   backgroundModule.__testing.resetActivityState();
 
   events.tabsOnActivated.dispatch({ tabId: 93, windowId: 10 });
+  events.tabsOnActivated.dispatch({ tabId: 94, windowId: 10 });
+  events.tabsOnActivated.dispatch({ tabId: 95, windowId: 10 });
 
   setNowMinute(10);
   await backgroundModule.__testing.runSuspendSweep(10);
 
   assert.equal(calls.tabsUpdateCalls.length, 1);
+  assert.equal(calls.tabsUpdateCalls[0][0], 95);
 });
 
 test.afterEach(() => {
