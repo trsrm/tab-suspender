@@ -3,7 +3,7 @@
 A privacy-first Safari Web Extension that suspends idle tabs and restores them safely.
 
 ## Current Status
-- Plan 0-8 are implemented.
+- Plan 0-9 are implemented.
 - Local QA hardening is documented in `docs/qa-checklist.md` and `docs/plans/plan-8-qa-hardening.md`.
 - v1 target remains macOS Safari with no telemetry.
 
@@ -41,6 +41,9 @@ A privacy-first Safari Web Extension that suspends idle tabs and restores them s
 - Runtime artifacts are generated into `build/extension/`.
 - Import path: `build/extension/manifest.json`.
 - `extension/` is source/static input only; do not load it directly.
+
+## Contributing
+- See `CONTRIBUTING.md` for plan-scoped workflow, required checks, evidence format, and rollback expectations.
 
 ## Manual Verification Workflow
 Use `docs/qa-checklist.md` for the canonical release-readiness checklist. Core smoke coverage includes:

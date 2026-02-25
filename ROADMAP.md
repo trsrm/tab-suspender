@@ -59,7 +59,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 6: Essential Settings UI and Persistence ([details](docs/plans/plan-6-settings-ui.md))
 - [x] Plan 7: Domain Exclusions With Wildcards ([details](docs/plans/plan-7-domain-exclusions.md))
 - [x] Plan 8: QA Hardening and Release Readiness (Local) ([details](docs/plans/plan-8-qa-hardening.md))
-- [ ] Plan 9: (draft) Technical debt and contributor docs (CONTRIBUTING, code comments, cleanup)
+- [x] Plan 9: Technical debt and contributor docs (CONTRIBUTING, code comments, cleanup) ([details](docs/plans/plan-9-technical-debt-contributor-docs.md))
 - [ ] Plan 10: (draft) UX polish (copy URL on click, icon for extension, etc).
 - [ ] Plan 11: (draft) Analyze project for KISS, YAGNI, DRY, performance, reliability, simplicity, over-engineering, and other anti-patterns; create separate plans for each perspective (don't do any changes).
 - [ ] Plan 12: (draft) Analyze and suggest features, create separate plans for each feature, but do not implement any of them.
@@ -133,3 +133,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-25: Completed Plan 6 settings UI and persistence with schema-versioned local storage, explicit Save flow, and live runtime settings hydration/update handling.
 - 2026-02-25: Completed Plan 7 domain exclusions with exact/wildcard host matching, options-side invalid-entry handling, and runtime policy integration for sweep/action-click safety.
 - 2026-02-25: Completed Plan 8 QA hardening with updated docs, deterministic local regression checklist, and recorded release-readiness evidence/residual risks.
+- 2026-02-25: Completed Plan 9 technical debt cleanup with contributor documentation, centralized background callback/Promise compatibility handling, and shared background test harness utilities.

@@ -12,6 +12,7 @@ This directory stores detailed plan specs and historical execution records.
 - `plan-6-settings-ui.md`
 - `plan-7-domain-exclusions.md`
 - `plan-8-qa-hardening.md`
+- `plan-9-technical-debt-contributor-docs.md`
 
 ## Usage
 - Keep `ROADMAP.md` concise and status-focused.

@@ -47,6 +47,7 @@ let currentSettings: Settings = {
   skipPinned: DEFAULT_SETTINGS.skipPinned,
   skipAudible: DEFAULT_SETTINGS.skipAudible
 };
+// Suspension paths wait on this gate so sweeps and action-click use hydrated settings.
 let settingsReady: Promise<void> = Promise.resolve();
 
 function log(message: string, details?: unknown): void {
@@ -143,121 +144,87 @@ function markTabUpdated(tabId: number, windowId: number | undefined, minute = ge
   record.lastUpdatedAtMinute = minute;
 }
 
-async function queryTabs(queryInfo: Record<string, unknown>): Promise<QueryTab[]> {
-  const tabsApi = chrome.tabs;
+function normalizeError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
 
-  return new Promise<QueryTab[]>((resolve, reject) => {
+function invokeChromeApiWithCompatibility<TResult>(
+  invoke: (callback: (result: TResult | undefined) => void) => Promise<TResult> | void,
+  mapResult: (result: TResult | undefined) => TResult
+): Promise<TResult> {
+  return new Promise<TResult>((resolve, reject) => {
     let settled = false;
 
-    const callback = (tabs: QueryTab[] | undefined): void => {
+    const rejectOnce = (error: unknown): void => {
       if (settled) {
         return;
       }
 
       settled = true;
+      reject(normalizeError(error));
+    };
+
+    const resolveOnce = (value: TResult): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      resolve(value);
+    };
+
+    const callback = (result: TResult | undefined): void => {
+      if (settled) {
+        return;
+      }
+
       const lastError = chrome.runtime.lastError;
 
       if (lastError) {
-        reject(new Error(lastError.message));
+        rejectOnce(new Error(lastError.message));
         return;
       }
 
-      resolve(Array.isArray(tabs) ? tabs : []);
+      resolveOnce(mapResult(result));
     };
 
     try {
-      const maybePromise = tabsApi.query(
-        queryInfo as Parameters<typeof tabsApi.query>[0],
-        callback as Parameters<typeof tabsApi.query>[1]
-      ) as Promise<QueryTab[]> | void;
+      const maybePromise = invoke(callback);
 
       if (maybePromise && typeof maybePromise.then === "function") {
-        maybePromise
-          .then((tabs) => {
-            if (settled) {
-              return;
-            }
-
-            settled = true;
-            resolve(Array.isArray(tabs) ? tabs : []);
-          })
-          .catch((error: unknown) => {
-            if (settled) {
-              return;
-            }
-
-            settled = true;
-            reject(error instanceof Error ? error : new Error(String(error)));
-          });
+        maybePromise.then((result) => resolveOnce(mapResult(result))).catch(rejectOnce);
       }
     } catch (error) {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      reject(error instanceof Error ? error : new Error(String(error)));
+      rejectOnce(error);
     }
   });
+}
+
+async function queryTabs(queryInfo: Record<string, unknown>): Promise<QueryTab[]> {
+  const tabsApi = chrome.tabs;
+
+  return invokeChromeApiWithCompatibility<QueryTab[]>(
+    (callback) =>
+      tabsApi.query(
+        queryInfo as Parameters<typeof tabsApi.query>[0],
+        callback as Parameters<typeof tabsApi.query>[1]
+      ) as Promise<QueryTab[]> | void,
+    (tabs) => (Array.isArray(tabs) ? tabs : [])
+  );
 }
 
 async function updateTab(tabId: number, updateProperties: Record<string, unknown>): Promise<void> {
   const tabsApi = chrome.tabs;
 
-  return new Promise<void>((resolve, reject) => {
-    let settled = false;
-
-    const callback = (): void => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      const lastError = chrome.runtime.lastError;
-
-      if (lastError) {
-        reject(new Error(lastError.message));
-        return;
-      }
-
-      resolve();
-    };
-
-    try {
-      const maybePromise = tabsApi.update(
+  return invokeChromeApiWithCompatibility<void>(
+    (callback) =>
+      tabsApi.update(
         tabId as Parameters<typeof tabsApi.update>[0],
         updateProperties as Parameters<typeof tabsApi.update>[1],
         callback as Parameters<typeof tabsApi.update>[2]
-      ) as Promise<unknown> | void;
-
-      if (maybePromise && typeof maybePromise.then === "function") {
-        maybePromise
-          .then(() => {
-            if (settled) {
-              return;
-            }
-
-            settled = true;
-            resolve();
-          })
-          .catch((error: unknown) => {
-            if (settled) {
-              return;
-            }
-
-            settled = true;
-            reject(error instanceof Error ? error : new Error(String(error)));
-          });
-      }
-    } catch (error) {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      reject(error instanceof Error ? error : new Error(String(error)));
-    }
-  });
+      ) as Promise<void> | void,
+    () => undefined
+  );
 }
 
 function getSyntheticTimedOutActivity(nowMinute: number): Pick<TabActivity, "lastActiveAtMinute" | "lastUpdatedAtMinute"> {
@@ -371,6 +338,7 @@ async function suspendTabIfEligible(
 }
 
 async function runSuspendSweep(nowMinute = getCurrentEpochMinute()): Promise<void> {
+  // Defer sweeps until settings hydration resolves so policy decisions are deterministic.
   await settingsReady;
 
   let tabs: QueryTab[];
@@ -388,6 +356,7 @@ async function runSuspendSweep(nowMinute = getCurrentEpochMinute()): Promise<voi
 }
 
 async function suspendFromAction(tab: QueryTab | undefined, nowMinute = getCurrentEpochMinute()): Promise<void> {
+  // Action-click bypasses only active/timeout checks; core safety guards still apply.
   await settingsReady;
 
   if (!tab) {
@@ -401,6 +370,7 @@ async function suspendFromAction(tab: QueryTab | undefined, nowMinute = getCurre
 }
 
 function scheduleSuspendSweepAlarm(): void {
+  // Re-register on install/startup to tolerate service-worker restarts.
   const alarmsApi = chrome.alarms;
 
   if (!alarmsApi || typeof alarmsApi.create !== "function") {
