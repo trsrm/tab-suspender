@@ -1,3 +1,5 @@
+export {};
+
 const statusEl = document.getElementById("status");
 
 if (statusEl) {
