@@ -7,6 +7,8 @@ import {
   setNowMinute
 } from "./helpers/background-harness.mjs";
 
+const ACTIVITY_STORAGE_KEY = "activityState";
+
 function assertMinutePrecision(records) {
   for (const record of records) {
     assert.equal(Number.isInteger(record.lastActiveAtMinute), true);
@@ -216,6 +218,234 @@ test("PING response remains unchanged", { concurrency: false }, async () => {
   });
 
   assert.deepEqual(response, { ok: true, phase: "skeleton" });
+});
+
+test("alarm ticks are cadence-gated and do not sweep every minute", { concurrency: false }, async () => {
+  setNowMinute(60);
+
+  const { events, calls, backgroundModule } = await importBackgroundWithMock({
+    queryResponder(queryInfo) {
+      if (queryInfo.active === true) {
+        return [];
+      }
+
+      if (queryInfo.active === false) {
+        return [];
+      }
+
+      return [];
+    }
+  });
+
+  await backgroundModule.__testing.waitForRuntimeReady();
+  const queryCallsAfterStartup = calls.queryCalls.length;
+
+  setNowMinute(60);
+  events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
+  await flushAsyncWork();
+  assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 1);
+
+  setNowMinute(61);
+  events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
+  await flushAsyncWork();
+  assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 1);
+
+  setNowMinute(64);
+  events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
+  await flushAsyncWork();
+  assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 1);
+
+  setNowMinute(65);
+  events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
+  await flushAsyncWork();
+  assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 2);
+});
+
+test("settings update can pull sweep due time earlier", { concurrency: false }, async () => {
+  setNowMinute(100);
+
+  const { events, calls, backgroundModule } = await importBackgroundWithMock({
+    storageSeed: {
+      settings: {
+        schemaVersion: 1,
+        settings: {
+          idleMinutes: 120,
+          excludedHosts: [],
+          skipPinned: true,
+          skipAudible: true
+        }
+      }
+    },
+    queryResponder(queryInfo) {
+      if (queryInfo.active === true) {
+        return [];
+      }
+
+      if (queryInfo.active === false) {
+        return [];
+      }
+
+      return [];
+    }
+  });
+
+  await backgroundModule.__testing.waitForRuntimeReady();
+  const queryCallsAfterStartup = calls.queryCalls.length;
+
+  setNowMinute(100);
+  events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
+  await flushAsyncWork();
+  assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 1);
+
+  events.storageOnChanged.dispatch(
+    {
+      settings: {
+        oldValue: {
+          schemaVersion: 1,
+          settings: {
+            idleMinutes: 120,
+            excludedHosts: [],
+            skipPinned: true,
+            skipAudible: true
+          }
+        },
+        newValue: {
+          schemaVersion: 1,
+          settings: {
+            idleMinutes: 12,
+            excludedHosts: [],
+            skipPinned: true,
+            skipAudible: true
+          }
+        }
+      }
+    },
+    "local"
+  );
+
+  setNowMinute(101);
+  events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
+  await flushAsyncWork();
+  assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 2);
+});
+
+test("alarm sweeps do not overlap while one sweep is in-flight", { concurrency: false }, async () => {
+  setNowMinute(200);
+
+  let resolveFirstSweep;
+  let firstSweepPending = true;
+
+  const { events, calls, backgroundModule } = await importBackgroundWithMock({
+    queryResponder(queryInfo) {
+      if (queryInfo.active === true) {
+        return [];
+      }
+
+      if (queryInfo.active === false) {
+        if (firstSweepPending) {
+          firstSweepPending = false;
+          return new Promise((resolve) => {
+            resolveFirstSweep = () => resolve([]);
+          });
+        }
+
+        return [];
+      }
+
+      return [];
+    }
+  });
+
+  await backgroundModule.__testing.waitForRuntimeReady();
+  const queryCallsAfterStartup = calls.queryCalls.length;
+
+  events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
+  await flushAsyncWork();
+  assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 1);
+
+  setNowMinute(205);
+  events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
+  await flushAsyncWork();
+  assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 1);
+
+  resolveFirstSweep();
+  await flushAsyncWork();
+  await flushAsyncWork();
+  assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 2);
+});
+
+test("in-flight sweep catch-up is bounded to one additional run", { concurrency: false }, async () => {
+  setNowMinute(220);
+
+  let resolveFirstSweep;
+  let firstSweepPending = true;
+
+  const { events, calls, backgroundModule } = await importBackgroundWithMock({
+    queryResponder(queryInfo) {
+      if (queryInfo.active === true) {
+        return [];
+      }
+
+      if (queryInfo.active === false) {
+        if (firstSweepPending) {
+          firstSweepPending = false;
+          return new Promise((resolve) => {
+            resolveFirstSweep = () => resolve([]);
+          });
+        }
+
+        return [];
+      }
+
+      return [];
+    }
+  });
+
+  await backgroundModule.__testing.waitForRuntimeReady();
+  const queryCallsAfterStartup = calls.queryCalls.length;
+
+  events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
+  await flushAsyncWork();
+  assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 1);
+
+  setNowMinute(225);
+  events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
+  events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
+  events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
+  await flushAsyncWork();
+  assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 1);
+
+  resolveFirstSweep();
+  await flushAsyncWork();
+  await flushAsyncWork();
+
+  // Initial in-flight sweep + one bounded catch-up sweep.
+  assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 2);
+});
+
+test("activity persistence coalesces burst updates into a single queued storage write", { concurrency: false }, async () => {
+  setNowMinute(300);
+
+  const { events, calls, backgroundModule } = await importBackgroundWithMock();
+  await backgroundModule.__testing.waitForRuntimeReady();
+  backgroundModule.__testing.resetActivityState();
+  await backgroundModule.__testing.flushPersistedActivityWrites();
+
+  const writesBefore = calls.storageSetCalls.filter((items) =>
+    Object.prototype.hasOwnProperty.call(items, ACTIVITY_STORAGE_KEY)
+  ).length;
+
+  events.tabsOnActivated.dispatch({ tabId: 1, windowId: 1001 });
+  events.tabsOnActivated.dispatch({ tabId: 2, windowId: 1002 });
+  events.tabsOnActivated.dispatch({ tabId: 3, windowId: 1003 });
+
+  await backgroundModule.__testing.flushPersistedActivityWrites();
+
+  const writesAfter = calls.storageSetCalls.filter((items) =>
+    Object.prototype.hasOwnProperty.call(items, ACTIVITY_STORAGE_KEY)
+  ).length;
+
+  assert.equal(writesAfter, writesBefore + 1);
 });
 
 test.afterEach(() => {

@@ -24,6 +24,10 @@ function decodePayloadFromUpdateCall(updateCall) {
   };
 }
 
+function isSweepCandidateQuery(queryInfo) {
+  return queryInfo && queryInfo.active === false;
+}
+
 test("runSuspendSweep suspends eligible idle tab with encoded payload", { concurrency: false }, async () => {
   setNowMinute(1);
 
@@ -33,7 +37,7 @@ test("runSuspendSweep suspends eligible idle tab with encoded payload", { concur
         return [];
       }
 
-      if (Object.keys(queryInfo).length === 0) {
+      if (isSweepCandidateQuery(queryInfo)) {
         return [
           {
             id: 42,
@@ -87,7 +91,7 @@ test("runSuspendSweep skips active, pinned, audible, internal, invalid-id, and m
         return [];
       }
 
-      if (Object.keys(queryInfo).length === 0) {
+      if (isSweepCandidateQuery(queryInfo)) {
         return [
           { id: 1, active: true, pinned: false, audible: false, url: "https://example.com/active" },
           { id: 2, active: false, pinned: true, audible: false, url: "https://example.com/pinned" },
@@ -118,7 +122,7 @@ test("runSuspendSweep skips URLs above the restorable max length", { concurrency
         return [];
       }
 
-      if (Object.keys(queryInfo).length === 0) {
+      if (isSweepCandidateQuery(queryInfo)) {
         return [
           {
             id: 71,
@@ -395,7 +399,7 @@ test("runSuspendSweep continues when one tab update fails", { concurrency: false
         return [];
       }
 
-      if (Object.keys(queryInfo).length === 0) {
+      if (isSweepCandidateQuery(queryInfo)) {
         return [
           {
             id: 201,
@@ -453,7 +457,7 @@ test("runSuspendSweep trims and caps title payload at 120 characters", { concurr
         return [];
       }
 
-      if (Object.keys(queryInfo).length === 0) {
+      if (isSweepCandidateQuery(queryInfo)) {
         return [
           {
             id: 303,
@@ -504,7 +508,7 @@ test("focus switch starts timeout from switch-away minute", { concurrency: false
         return [{ id: 2, windowId: 1, active: true, url: "https://example.com/two" }];
       }
 
-      if (Object.keys(queryInfo).length === 0) {
+      if (isSweepCandidateQuery(queryInfo)) {
         return [
           { id: 1, windowId: 1, active: false, pinned: false, audible: false, url: "https://example.com/one" },
           { id: 2, windowId: 1, active: true, pinned: false, audible: false, url: "https://example.com/two" }
@@ -552,7 +556,7 @@ test("missing activity baseline delays suspend until one full timeout interval",
         return [];
       }
 
-      if (Object.keys(queryInfo).length === 0) {
+      if (isSweepCandidateQuery(queryInfo)) {
         return [{ id: 50, windowId: 5, active: false, pinned: false, audible: false, url: "https://example.com/baseline" }];
       }
 
@@ -582,7 +586,7 @@ test("persisted activity survives worker restart and enables suspend without rea
       return [{ id: 2, windowId: 7, active: true, url: "https://example.com/two" }];
     }
 
-    if (Object.keys(queryInfo).length === 0) {
+    if (isSweepCandidateQuery(queryInfo) || Object.keys(queryInfo).length === 0) {
       return [
         { id: 1, windowId: 7, active: false, pinned: false, audible: false, url: "https://example.com/one" },
         { id: 2, windowId: 7, active: true, pinned: false, audible: false, url: "https://example.com/two" }
@@ -633,6 +637,109 @@ test("persisted activity survives worker restart and enables suspend without rea
   assert.equal(secondRun.calls.tabsUpdateCalls[0][0], 1);
 
   restoreBackgroundGlobals();
+});
+
+test("runSuspendSweep applies filtered query candidates from current settings", { concurrency: false }, async () => {
+  setNowMinute(210);
+
+  const { calls, backgroundModule } = await importBackgroundWithMock({
+    storageSeed: {
+      [SETTINGS_STORAGE_KEY]: {
+        schemaVersion: 1,
+        settings: {
+          idleMinutes: 60,
+          excludedHosts: [],
+          skipPinned: true,
+          skipAudible: true
+        }
+      }
+    },
+    queryResponder(queryInfo) {
+      if (isSweepCandidateQuery(queryInfo)) {
+        return [];
+      }
+
+      return [];
+    }
+  });
+
+  await backgroundModule.__testing.waitForRuntimeReady();
+  await backgroundModule.__testing.runSuspendSweep(210);
+
+  assert.deepEqual(calls.queryCalls.at(-1), {
+    active: false,
+    pinned: false,
+    audible: false
+  });
+});
+
+test("runSuspendSweep falls back to unfiltered query when filtered query fails", { concurrency: false }, async () => {
+  setNowMinute(211);
+
+  const { calls, backgroundModule } = await importBackgroundWithMock({
+    queryResponder(queryInfo) {
+      if (isSweepCandidateQuery(queryInfo)) {
+        throw new Error("simulated filtered query failure");
+      }
+
+      if (Object.keys(queryInfo).length === 0) {
+        return [
+          {
+            id: 900,
+            windowId: 9,
+            active: false,
+            pinned: false,
+            audible: false,
+            url: "https://example.com/fallback",
+            title: "Fallback tab"
+          }
+        ];
+      }
+
+      return [];
+    }
+  });
+
+  await backgroundModule.__testing.waitForRuntimeReady();
+  backgroundModule.__testing.resetActivityState();
+  await backgroundModule.__testing.runSuspendSweep(211);
+
+  assert.deepEqual(calls.queryCalls.slice(-2), [
+    { active: false, pinned: false, audible: false },
+    {}
+  ]);
+  assert.equal(calls.tabsUpdateCalls.length, 0);
+});
+
+test("runSuspendSweep skips already suspended extension pages", { concurrency: false }, async () => {
+  setNowMinute(212);
+
+  const { events, calls, backgroundModule } = await importBackgroundWithMock({
+    queryResponder(queryInfo) {
+      if (!isSweepCandidateQuery(queryInfo)) {
+        return [];
+      }
+
+      return [
+        {
+          id: 950,
+          windowId: 95,
+          active: false,
+          pinned: false,
+          audible: false,
+          url: "safari-extension://test-extension/suspended.html?u=https%3A%2F%2Fexample.com",
+          title: "Suspended tab"
+        }
+      ];
+    }
+  });
+
+  await backgroundModule.__testing.waitForRuntimeReady();
+  backgroundModule.__testing.resetActivityState();
+  events.tabsOnActivated.dispatch({ tabId: 950, windowId: 95 });
+  await backgroundModule.__testing.runSuspendSweep(212);
+
+  assert.equal(calls.tabsUpdateCalls.length, 0);
 });
 
 test.afterEach(() => {

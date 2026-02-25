@@ -65,7 +65,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [ ] Plan 12: (draft) Analyze and suggest features, create separate plans for each feature, but do not implement any of them.
 - [x] Plan 13: Reliable auto-suspend timeout (focus-based + restart-safe) ([details](docs/plans/plan-13-reliable-auto-suspend-timeout.md))
 - [x] Plan 14: Reload-safe recovery ledger + options reopen flow ([details](docs/plans/plan-14-reload-safe-recovery.md))
-- [ ] Plan 15: (draft) Package a Safari Web Extension that can be installed to Safari (XCode build?)
+- [x] Plan 15: Safari CPU reduction via adaptive sweep cadence + candidate filtering ([details](docs/plans/plan-15-safari-cpu-reduction.md))
 
 ## Governance Rules
 - Execute one plan per implementation turn.
@@ -133,6 +133,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-017**: Suspended-tab recovery fallback is persisted as a bounded, deduped URL ledger and exposed via Options-only manual reopen controls.
   - Alternatives: automatic startup reopen, toolbar-only recovery action, or no recovery fallback.
   - Impact: users can recover dropped suspended tabs after extension reloads without introducing automatic side effects.
+- **D-018**: Suspend sweep execution remains on a 1-minute alarm tick, but full sweep work is cadence-gated (`1..5` minutes) and candidate-filtered to reduce Safari CPU load under high tab counts.
+  - Alternatives: fixed 1-minute full sweeps, coarser alarm period changes, or user-configurable sweep interval.
+  - Impact: materially lower background runtime churn while preserving existing suspend safety guards and action-click behavior.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -150,3 +153,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-25: Completed Plan 10 suspended-page UX polish with title/document-title improvements, URL copy interaction, stronger restore CTA styling, and extension icon wiring.
 - 2026-02-25: Completed Plan 13 reliable auto-suspend timeout with focus-based idle semantics, persisted activity hydration/persistence, and restart-durability coverage.
 - 2026-02-26: Completed Plan 14 reload-safe recovery with versioned suspended-tab recovery storage, options-based reopen UI, and regression coverage for recovery persistence/failure handling.
+- 2026-02-26: Completed Plan 15 Safari CPU reduction with adaptive sweep cadence gating, filtered sweep candidate queries with fallback, and suspended-page self-churn avoidance.

@@ -9,6 +9,10 @@ import {
 const SETTINGS_STORAGE_KEY = "settings";
 const ACTIVITY_STORAGE_KEY = "activityState";
 
+function isSweepCandidateQuery(queryInfo) {
+  return queryInfo && queryInfo.active === false;
+}
+
 test("background uses persisted settings for sweep decisions", { concurrency: false }, async () => {
   setNowMinute(1);
 
@@ -29,7 +33,7 @@ test("background uses persisted settings for sweep decisions", { concurrency: fa
         return [];
       }
 
-      if (Object.keys(queryInfo).length === 0) {
+      if (isSweepCandidateQuery(queryInfo)) {
         return [
           {
             id: 91,
@@ -69,7 +73,7 @@ test("storage.onChanged updates runtime settings without restart", { concurrency
         return [];
       }
 
-      if (Object.keys(queryInfo).length === 0) {
+      if (isSweepCandidateQuery(queryInfo)) {
         return [
           {
             id: 92,
@@ -167,7 +171,7 @@ test("persisted excluded hosts prevent sweep suspend for exact match", { concurr
         return [];
       }
 
-      if (Object.keys(queryInfo).length === 0) {
+      if (isSweepCandidateQuery(queryInfo)) {
         return [
           {
             id: 93,

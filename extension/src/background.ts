@@ -12,6 +12,8 @@ const WINDOW_ID_NONE = -1;
 const MAX_SUSPENDED_TITLE_LENGTH = 120;
 const SUSPEND_SWEEP_ALARM = "suspend-sweep-v1";
 const SUSPEND_SWEEP_PERIOD_MINUTES = 1;
+const MAX_SWEEP_INTERVAL_MINUTES = 5;
+const MIN_SWEEP_INTERVAL_MINUTES = 1;
 
 type QueryTab = {
   id?: number;
@@ -63,6 +65,14 @@ let activityReady: Promise<void> = Promise.resolve();
 let runtimeReady: Promise<void> = Promise.resolve();
 let activityPersistQueue: Promise<void> = Promise.resolve();
 let recoveryPersistQueue: Promise<void> = Promise.resolve();
+let activityPersistScheduled = false;
+let recoveryPersistScheduled = false;
+let activityPersistDirty = false;
+let recoveryPersistDirty = false;
+let nextSweepDueMinute = 0;
+let hasLoggedFilteredSweepQueryFailure = false;
+let sweepInFlight: Promise<void> | null = null;
+let pendingSweepMinute: number | null = null;
 
 function log(message: string, details?: unknown): void {
   if (details === undefined) {
@@ -123,23 +133,104 @@ async function persistRecoverySnapshot(): Promise<void> {
 }
 
 function schedulePersistActivity(): void {
+  activityPersistDirty = true;
+
+  if (activityPersistScheduled) {
+    return;
+  }
+
+  activityPersistScheduled = true;
   activityPersistQueue = activityPersistQueue
-    .then(() => persistActivitySnapshot())
+    .then(async () => {
+      while (activityPersistDirty) {
+        activityPersistDirty = false;
+        await persistActivitySnapshot();
+      }
+    })
     .catch((error: unknown) => {
       log("Failed to persist activity snapshot.", error);
+    })
+    .finally(() => {
+      activityPersistScheduled = false;
+
+      if (activityPersistDirty) {
+        schedulePersistActivity();
+      }
     });
 }
 
 function schedulePersistRecovery(): void {
+  recoveryPersistDirty = true;
+
+  if (recoveryPersistScheduled) {
+    return;
+  }
+
+  recoveryPersistScheduled = true;
   recoveryPersistQueue = recoveryPersistQueue
-    .then(() => persistRecoverySnapshot())
+    .then(async () => {
+      while (recoveryPersistDirty) {
+        recoveryPersistDirty = false;
+        await persistRecoverySnapshot();
+      }
+    })
     .catch((error: unknown) => {
       log("Failed to persist recovery snapshot.", error);
+    })
+    .finally(() => {
+      recoveryPersistScheduled = false;
+
+      if (recoveryPersistDirty) {
+        schedulePersistRecovery();
+      }
     });
 }
 
 function applyStoredSettingsValue(value: unknown): void {
   currentSettings = decodeStoredSettings(value);
+}
+
+function computeSweepIntervalMinutes(settings: Settings): number {
+  const interval = Math.floor(settings.idleMinutes / 12);
+  return Math.min(MAX_SWEEP_INTERVAL_MINUTES, Math.max(MIN_SWEEP_INTERVAL_MINUTES, interval));
+}
+
+function alignSweepCadenceAfterSettingsChange(nowMinute = getCurrentEpochMinute()): void {
+  const interval = computeSweepIntervalMinutes(currentSettings);
+  const candidateDueMinute = nowMinute + interval;
+
+  if (nextSweepDueMinute <= nowMinute || candidateDueMinute < nextSweepDueMinute) {
+    nextSweepDueMinute = candidateDueMinute;
+  }
+}
+
+function buildSuspendSweepQueryInfo(settings: Settings): Record<string, unknown> {
+  const queryInfo: Record<string, unknown> = {
+    active: false
+  };
+
+  if (settings.skipPinned) {
+    queryInfo.pinned = false;
+  }
+
+  if (settings.skipAudible) {
+    queryInfo.audible = false;
+  }
+
+  return queryInfo;
+}
+
+function isExtensionSuspendedPageUrl(url: string | undefined): boolean {
+  if (typeof url !== "string" || url.length === 0) {
+    return false;
+  }
+
+  try {
+    const parsedUrl = new URL(url);
+    return parsedUrl.pathname === "/suspended.html";
+  } catch {
+    return false;
+  }
 }
 
 async function hydrateSettingsFromStorage(): Promise<void> {
@@ -191,6 +282,7 @@ function handleStorageSettingsChange(changes: Record<string, StorageChange> | un
   }
 
   applyStoredSettingsValue(settingsChange.newValue);
+  alignSweepCadenceAfterSettingsChange();
 }
 
 function upsertActivity(tabId: number, windowId: number | undefined, minute: number): TabActivity {
@@ -479,6 +571,10 @@ async function suspendTabIfEligible(
   nowMinute: number,
   options: SuspendEvaluationOptions = {}
 ): Promise<void> {
+  if (isExtensionSuspendedPageUrl(tab.url)) {
+    return;
+  }
+
   if (!isValidId(tab.id)) {
     return;
   }
@@ -519,16 +615,51 @@ async function runSuspendSweep(nowMinute = getCurrentEpochMinute()): Promise<voi
 
   let tabs: QueryTab[];
 
+  const filteredQueryInfo = buildSuspendSweepQueryInfo(currentSettings);
+
   try {
-    tabs = await queryTabs({});
+    tabs = await queryTabs(filteredQueryInfo);
   } catch (error) {
-    log("Failed to query tabs for suspend sweep.", error);
-    return;
+    if (!hasLoggedFilteredSweepQueryFailure) {
+      hasLoggedFilteredSweepQueryFailure = true;
+      log("Filtered tab query failed for suspend sweep. Falling back to unfiltered query.", error);
+    }
+
+    try {
+      tabs = await queryTabs({});
+    } catch (fallbackError) {
+      log("Failed to query tabs for suspend sweep.", fallbackError);
+      return;
+    }
   }
 
   for (const tab of tabs) {
     await suspendTabIfEligible(tab, nowMinute);
   }
+}
+
+function requestSuspendSweepRun(nowMinute: number): void {
+  if (sweepInFlight) {
+    pendingSweepMinute = pendingSweepMinute === null ? nowMinute : Math.max(pendingSweepMinute, nowMinute);
+    return;
+  }
+
+  sweepInFlight = (async () => {
+    await runSuspendSweep(nowMinute);
+
+    // Bound catch-up to one extra sweep so prolonged alarm backlogs cannot run indefinitely.
+    if (pendingSweepMinute !== null) {
+      const nextMinute = pendingSweepMinute;
+      pendingSweepMinute = null;
+      await runSuspendSweep(nextMinute);
+    }
+  })()
+    .catch((error: unknown) => {
+      log("Suspend sweep run failed.", error);
+    })
+    .finally(() => {
+      sweepInFlight = null;
+    });
 }
 
 async function suspendFromAction(tab: QueryTab | undefined, nowMinute = getCurrentEpochMinute()): Promise<void> {
@@ -643,6 +774,8 @@ async function initializeRuntimeState(): Promise<void> {
   if (pruned || seeded) {
     schedulePersistActivity();
   }
+
+  nextSweepDueMinute = getCurrentEpochMinute();
 }
 
 function isMeaningfulTabUpdate(changeInfo: unknown): boolean {
@@ -816,7 +949,14 @@ chrome.alarms.onAlarm.addListener((alarm: AlarmInfo | undefined) => {
     return;
   }
 
-  void runSuspendSweep();
+  const nowMinute = getCurrentEpochMinute();
+
+  if (nowMinute < nextSweepDueMinute) {
+    return;
+  }
+
+  nextSweepDueMinute = nowMinute + computeSweepIntervalMinutes(currentSettings);
+  requestSuspendSweepRun(nowMinute);
 });
 
 chrome.action.onClicked.addListener((tab: QueryTab | undefined) => {

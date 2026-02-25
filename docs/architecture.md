@@ -36,7 +36,9 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 - `tabs.onActivated`, `tabs.onUpdated`, `windows.onFocusChanged`, `tabs.onRemoved`, and `tabs.onReplaced` maintain bounded minute-level tab activity state.
 3. Sweep evaluation
 - Alarm (`suspend-sweep-v1`) runs every minute.
-- All tabs are queried and passed through policy input builder.
+- Alarm ticks are cadence-gated (`1..5` minute effective interval based on `idleMinutes`) before running full sweep logic.
+- Sweep candidates are queried with pre-filters (`active: false` plus optional `pinned: false` / `audible: false`).
+- If filtered query fails, runtime falls back to unfiltered tab query for safety.
 4. Policy decision
 - Evaluator returns deterministic `{ shouldSuspend, reason }`.
 - Eligible tabs are rewritten to `suspended.html` with encoded payload.
@@ -97,6 +99,7 @@ Used by:
 ## Reliability and Failure Handling
 - Background logs and continues when individual tab updates fail.
 - Query/update wrappers support callback and Promise-style extension APIs.
+- Suspend sweeps skip already-suspended extension pages to avoid self-churn.
 - Invalid/missing activity defaults to non-suspension (`timeoutNotReached`).
 - Invalid storage payload falls back to defaults.
 

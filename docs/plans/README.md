@@ -16,6 +16,7 @@ This directory stores detailed plan specs and historical execution records.
 - `plan-10-suspended-page-ux-polish-and-extension-icon.md`
 - `plan-13-reliable-auto-suspend-timeout.md`
 - `plan-14-reload-safe-recovery.md`
+- `plan-15-safari-cpu-reduction.md`
 
 ## Usage
 - Keep `ROADMAP.md` concise and status-focused.
