@@ -1,34 +1,75 @@
 # Tab Suspender (Safari)
 
-Incremental Safari tab-suspender extension built with a roadmap-first process.
+A privacy-first Safari Web Extension that suspends idle tabs and restores them safely.
 
 ## Current Status
-- Plan 0: Roadmap and governance defined.
-- Plan 1: Scaffold and extension skeleton created.
-- Suspension behavior is intentionally not implemented yet.
+- Plan 0-8 are implemented.
+- Local QA hardening is documented in `docs/qa-checklist.md` and `docs/plans/plan-8-qa-hardening.md`.
+- v1 target remains macOS Safari with no telemetry.
+
+## Implemented Behavior
+- Background sweep evaluates tabs every minute and suspends eligible idle tabs.
+- Toolbar action click can suspend the current tab immediately by bypassing only `active` + timeout checks.
+- Policy safety guards skip active, pinned (optional), audible (optional), internal URLs, excluded hosts, and oversized URLs.
+- Suspended-page payload includes original URL, title (trimmed/capped), and capture timestamp (minute precision).
+- Restore flow validates URL safety (`http/https`, max 2048 chars) before navigation.
+- Settings are versioned in `chrome.storage.local` under `settings` with runtime live updates via `storage.onChanged`.
+- Host exclusions support exact hosts (`example.com`) and wildcard subdomain rules (`*.example.com`, subdomains only).
+
+## Non-Goals and Limits (v1)
+- No telemetry, analytics, or remote network calls.
+- No automatic cloud sync; settings are local extension storage.
+- No iOS/iPadOS support.
+- No non-HTTP(S) restore targets.
+- Wildcard exclusions do not match apex domains.
+
+## Prerequisites
+- macOS with Safari (for manual smoke checks).
+- Node.js + npm.
+
+## Local Development
+1. Install dependencies:
+   - `npm ci`
+2. Build runtime output:
+   - `npm run build`
+3. Run type checks:
+   - `npm run typecheck`
+4. Run regression tests:
+   - `npm run test`
+
+## Loading the Extension Locally
+- Runtime artifacts are generated into `build/extension/`.
+- Import path: `build/extension/manifest.json`.
+- `extension/` is source/static input only; do not load it directly.
+
+## Manual Verification Workflow
+Use `docs/qa-checklist.md` for the canonical release-readiness checklist. Core smoke coverage includes:
+- Settings load/save behavior.
+- Idle sweep suspension behavior.
+- Action-click suspension safety behavior.
+- Exact + wildcard exclusion behavior.
+- Suspended-page restore safety behavior.
+
+## Troubleshooting
+- Build artifacts missing:
+  - Run `npm run build` and verify `build/extension/manifest.json` exists.
+- Settings appear stale:
+  - Reopen options page and confirm `chrome.storage.local["settings"]` value shape (`schemaVersion: 1`).
+- Tab did not suspend:
+  - Check guard conditions: active, pinned/audible toggles, internal URL, excluded host, timeout, URL length.
+- Restore button disabled:
+  - Check suspended payload URL validity (`http/https`) and max URL length (2048).
 
 ## Repository Layout
-- `ROADMAP.md`: phased implementation plan and gates.
-- `extension/`: Safari Web Extension files.
-- `docs/`: architecture and QA documentation.
-- `tests/`: lightweight scaffold tests.
-
-## Local Development (Skeleton Stage)
-1. Review `ROADMAP.md` and execute one plan at a time.
-2. Run `npm run build` to compile TypeScript and package runtime files into `build/extension/`.
-3. Import the extension from `build/extension/manifest.json`.
-4. Generate Safari wrapper app via Xcode/Safari Web Extension converter in a later step when moving beyond scaffold verification.
+- `ROADMAP.md`: high-level plan status + global cross-plan decisions.
+- `docs/plans/`: detailed plan-by-plan implementation records and evidence.
+- `docs/architecture.md`: runtime architecture and safety decisions.
+- `docs/qa-checklist.md`: local release-readiness checklist.
+- `extension/`: source TypeScript + static extension assets.
+- `build/extension/`: compiled/importable extension runtime.
+- `tests/`: Node test suites for policy, runtime, UI logic, and guardrails.
 
 ## Scripts
-- `npm run build`: compile TypeScript and package importable extension files into `build/extension`.
-- `npm run test`: run scaffold smoke tests.
-- `npm run typecheck`: TypeScript type check (requires dependencies installed).
-
-## Safari Import Path
-- Use `build/extension/` (contains `manifest.json` and compiled runtime files).
-- `extension/` is source and static assets; do not load it directly into Safari.
-
-## Defaults Locked for v1
-- macOS Safari target.
-- No telemetry.
-- Default timeout target: 60 minutes (implemented in later plans).
+- `npm run build`: compile TypeScript and copy static extension assets.
+- `npm run typecheck`: TypeScript typecheck without emit.
+- `npm run test`: build + run all Node test suites (`tests/*.test.mjs`).

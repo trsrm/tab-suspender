@@ -1,30 +1,104 @@
-# Architecture Notes (Scaffold Stage)
+# Architecture Notes (Current Runtime)
 
 ## Goal
-Provide a small, safe baseline for a Safari tab-suspender extension.
+Provide deterministic, safe tab suspension behavior for local Safari usage with minimal permissions and no telemetry.
 
-## Components
-- `src/*.ts`: TypeScript source for extension runtime logic.
-- `build/extension/background.js` / `build/extension/options.js` / `build/extension/suspended.js`: compiled runtime outputs generated from `src/*.ts` via `npm run build`.
-- `suspended.html` + `suspended.js`: placeholder lightweight suspended-page UI.
-- `options.html` + `options.js`: placeholder options UI.
-- `src/types.ts`: planned interfaces for settings and suspension decisions.
+## Runtime Components
+- `extension/src/background.ts`
+  - Owns activity tracking, settings hydration, alarm scheduling, sweep evaluation, and suspend navigation.
+- `extension/src/policy.ts`
+  - Pure policy evaluator with deterministic precedence and reason output.
+- `extension/src/settings-store.ts`
+  - Versioned settings decode/sanitize/load/save helpers for `chrome.storage.local`.
+- `extension/src/matcher.ts`
+  - Host exclusion normalization and exact/wildcard hostname matching.
+- `extension/src/url-safety.ts`
+  - Shared restore/suspend URL validator (`http/https`, max length 2048).
+- `extension/src/options.ts`
+  - Options page load/save flow, validation, and status messaging.
+- `extension/src/suspended.ts`
+  - Suspended page payload parsing, status rendering, and guarded restore action.
+- `extension/src/types.ts`
+  - Shared settings, activity, policy, and payload interfaces.
 
-## Safari Compatibility Notes
-- Target model: Safari Web Extension with Apple wrapper workflow.
-- Keep APIs limited to broadly supported extension primitives (`tabs`, `storage`, `alarms`).
-- Avoid remote scripts and unsafe eval patterns.
+## Build and Packaging Flow
+- Source lives in `extension/`.
+- `npm run build` compiles TypeScript and copies static assets into `build/extension/`.
+- Runtime JS in `build/extension/` is canonical for local import/testing.
 
-## Security Posture (v1 baseline)
-- Least-privilege permissions.
-- Strict extension page CSP in manifest.
-- No telemetry or remote endpoints.
-- Explicit URL validation deferred to Plan 4/5.
+## Data Flow
+1. Extension startup
+- `background.ts` schedules sweep alarm and seeds currently active tabs.
+- Settings are hydrated from `chrome.storage.local["settings"]`.
+2. Activity capture
+- `tabs.onActivated`, `tabs.onUpdated`, `windows.onFocusChanged`, `tabs.onRemoved`, and `tabs.onReplaced` maintain bounded minute-level tab activity state.
+3. Sweep evaluation
+- Alarm (`suspend-sweep-v1`) runs every minute.
+- All tabs are queried and passed through policy input builder.
+4. Policy decision
+- Evaluator returns deterministic `{ shouldSuspend, reason }`.
+- Eligible tabs are rewritten to `suspended.html` with encoded payload.
+5. Suspended page restore
+- Suspended page validates payload URL before allowing restore.
+- Invalid, unsupported, or oversized URLs remain blocked with explicit status text.
 
-## Performance Baseline
-- Background runtime tracks tab/window activity in bounded in-memory state.
-- Suspended/options pages are static and lightweight.
+## Policy Precedence (Deterministic)
+Order in `evaluateSuspendDecision`:
+1. `active`
+2. `pinned` (when `skipPinned` is true)
+3. `audible` (when `skipAudible` is true)
+4. `internalUrl` (non-http/https)
+5. `urlTooLong`
+6. `excludedHost`
+7. `timeoutNotReached`
+8. `eligible`
+
+Timeout basis uses:
+- `max(lastActiveAtMinute, lastUpdatedAtMinute)`.
+
+## Settings Model
+- Storage key: `settings`.
+- Envelope schema: `{ schemaVersion: 1, settings: { ... } }`.
+- Sanitization:
+  - `idleMinutes`: integer clamped to `1..1440`.
+  - `skipPinned` / `skipAudible`: strict booleans.
+  - `excludedHosts`: normalized/deduped, length and count bounded.
+- Runtime applies `storage.onChanged` updates without restart.
+
+## Excluded Host Semantics
+- Exact rule example: `example.com` matches only `example.com`.
+- Wildcard rule example: `*.example.com` matches subdomains like `a.example.com` but not apex `example.com`.
+- Invalid entries are ignored during normalization; valid entries still persist.
+
+## URL Safety Rules
+Shared validator in `url-safety.ts`:
+- URL must exist and parse.
+- Protocol must be `http:` or `https:`.
+- URL length must be `<= 2048` characters.
+
+Used by:
+- Background suspend payload generation.
+- Suspended-page restore action.
+
+## Security Posture
+- Manifest permissions limited to `tabs`, `storage`, `alarms`.
+- CSP for extension pages: `script-src 'self'; object-src 'none';`.
+- No remote script loading.
+- No telemetry or network endpoints.
+
+## Reliability and Failure Handling
+- Background logs and continues when individual tab updates fail.
+- Query/update wrappers support callback and Promise-style extension APIs.
+- Invalid/missing activity defaults to non-suspension (`timeoutNotReached`).
+- Invalid storage payload falls back to defaults.
 
 ## Accessibility Baseline
-- Semantic headings, labels, keyboard-reachable buttons.
-- Minimal color contrast-safe styling.
+- Options and suspended pages use semantic structure and labeled controls.
+- Error/status text uses `role="alert"` / `role="status"` + `aria-live` for assistive updates.
+- Keyboard-operable controls are preserved.
+
+## Known Limitations
+- Local-only readiness process; no automated Safari UI integration tests.
+- No telemetry means no in-product production diagnostics.
+- No cross-device settings sync.
+- No configurable policy precedence in v1.

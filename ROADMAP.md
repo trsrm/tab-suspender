@@ -58,9 +58,8 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 5: Restore Flow + URL Safety Guards ([details](docs/plans/plan-5-restore-flow.md))
 - [x] Plan 6: Essential Settings UI and Persistence ([details](docs/plans/plan-6-settings-ui.md))
 - [x] Plan 7: Domain Exclusions With Wildcards ([details](docs/plans/plan-7-domain-exclusions.md))
-- [ ] Plan 8: QA Hardening and Release Readiness (Local) ([details](docs/plans/plan-8-qa-hardening.md))
-- [ ] Plan 8: QA Hardening and Release Readiness (Local) ([details](docs/plans/plan-8-qa-hardening.md))
-- [ ] Plan 9: (draft) Documentation and technical debt (user-readable README, CONTRIBUTING, code comments, and cleanup)
+- [x] Plan 8: QA Hardening and Release Readiness (Local) ([details](docs/plans/plan-8-qa-hardening.md))
+- [ ] Plan 9: (draft) Technical debt and contributor docs (CONTRIBUTING, code comments, cleanup)
 - [ ] Plan 10: (draft) UX polish (copy URL on click, icon for extension, etc).
 - [ ] Plan 11: (draft) Analyze project for KISS, YAGNI, DRY, performance, reliability, simplicity, over-engineering, and other anti-patterns; create separate plans for each perspective (don't do any changes).
 - [ ] Plan 12: (draft) Analyze and suggest features, create separate plans for each feature, but do not implement any of them.
@@ -75,7 +74,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - Gate A: Plan 0 governance and documentation model established.
 - Gate B: Plan 1 scaffold exists with no suspension behavior yet.
 - Gate C: Plans 2-7 each require test evidence before advancing.
-- Gate D: Plan 8 requires full local regression checklist completion.
+- Gate D: Plan 8 requires full local regression checklist execution with explicit automated + manual status capture.
 
 ## Decision Log
 ### 2026-02-25
@@ -118,6 +117,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-013**: Domain exclusions support exact host and subdomain-only wildcard (`*.example.com`) rules, with invalid entries dropped while valid entries are still persisted.
   - Alternatives: apex-inclusive wildcard semantics, strict save-blocking on any invalid entry, or exact-only matching.
   - Impact: deterministic host exclusion behavior with low-friction settings UX and strong policy-level safety.
+- **D-014**: Plan 8 QA gate evidence is tracked in both `docs/qa-checklist.md` and the Plan 8 file, with manual Safari steps explicitly marked when blocked (never implied as passed).
+  - Alternatives: automated-only release gate, or undocumented manual checks.
+  - Impact: auditable readiness reporting with clear residual-risk visibility.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -130,3 +132,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-25: Completed Plan 5 restore flow with shared URL validation (`http/https` + 2048-char max), safe suspended-page restore interaction, and oversized URL guardrails.
 - 2026-02-25: Completed Plan 6 settings UI and persistence with schema-versioned local storage, explicit Save flow, and live runtime settings hydration/update handling.
 - 2026-02-25: Completed Plan 7 domain exclusions with exact/wildcard host matching, options-side invalid-entry handling, and runtime policy integration for sweep/action-click safety.
+- 2026-02-25: Completed Plan 8 QA hardening with updated docs, deterministic local regression checklist, and recorded release-readiness evidence/residual risks.
