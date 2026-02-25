@@ -9,8 +9,12 @@ import {
 } from "./settings-store.js";
 import { normalizeExcludedHostEntries } from "./matcher.js";
 import type { Settings } from "./types.js";
+import { loadRecoveryFromStorage } from "./recovery-store.js";
+import { validateRestorableUrl } from "./url-safety.js";
 
 export {};
+
+const RECOVERY_DEFAULT_TITLE = "Untitled tab";
 
 type OptionsElements = {
   form: HTMLFormElement;
@@ -21,6 +25,8 @@ type OptionsElements = {
   excludedHostsInput: HTMLTextAreaElement;
   saveButton: HTMLButtonElement;
   statusEl: HTMLElement;
+  recoveryList: HTMLElement;
+  recoveryEmpty: HTMLElement;
 };
 
 function getOptionsElements(): OptionsElements | null {
@@ -32,6 +38,8 @@ function getOptionsElements(): OptionsElements | null {
   const excludedHostsInput = document.getElementById("excludedHosts");
   const saveButton = document.getElementById("saveButton");
   const statusEl = document.getElementById("status");
+  const recoveryList = document.getElementById("recoveryList");
+  const recoveryEmpty = document.getElementById("recoveryEmpty");
 
   if (
     !form ||
@@ -41,7 +49,9 @@ function getOptionsElements(): OptionsElements | null {
     !skipAudibleInput ||
     !excludedHostsInput ||
     !saveButton ||
-    !statusEl
+    !statusEl ||
+    !recoveryList ||
+    !recoveryEmpty
   ) {
     return null;
   }
@@ -54,7 +64,9 @@ function getOptionsElements(): OptionsElements | null {
     skipAudibleInput: skipAudibleInput as HTMLInputElement,
     excludedHostsInput: excludedHostsInput as HTMLTextAreaElement,
     saveButton: saveButton as HTMLButtonElement,
-    statusEl: statusEl as HTMLElement
+    statusEl: statusEl as HTMLElement,
+    recoveryList: recoveryList as HTMLElement,
+    recoveryEmpty: recoveryEmpty as HTMLElement
   };
 }
 
@@ -107,6 +119,161 @@ function renderSettings(elements: OptionsElements, settings: Settings): void {
   elements.skipPinnedInput.checked = settings.skipPinned;
   elements.skipAudibleInput.checked = settings.skipAudible;
   elements.excludedHostsInput.value = settings.excludedHosts.join("\n");
+}
+
+type RecoveryItem = {
+  url: string;
+  title: string;
+  suspendedAtMinute: number;
+};
+
+function formatCapturedAtMinute(minute: number): string {
+  if (!Number.isFinite(minute) || minute <= 0) {
+    return "Capture time unavailable.";
+  }
+
+  try {
+    const isoMinute = new Date(minute * 60_000).toISOString().slice(0, 16).replace("T", " ");
+    return `Captured at ${isoMinute} UTC.`;
+  } catch {
+    return `Captured at minute ${minute}.`;
+  }
+}
+
+function getRecoveryTitle(value: string): string {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : RECOVERY_DEFAULT_TITLE;
+}
+
+function setRecoveryEmpty(elements: OptionsElements, message: string, hidden: boolean): void {
+  elements.recoveryEmpty.textContent = message;
+  elements.recoveryEmpty.hidden = hidden;
+}
+
+function createTabWithCompatibility(url: string): Promise<void> {
+  const tabsApi = chrome?.tabs;
+
+  if (!tabsApi || typeof tabsApi.create !== "function") {
+    return Promise.reject(new Error("Tabs API unavailable."));
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+
+    const resolveOnce = (): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      resolve();
+    };
+
+    const rejectOnce = (error: unknown): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+
+    const callback = (): void => {
+      if (settled) {
+        return;
+      }
+
+      const runtimeLastError = chrome?.runtime?.lastError;
+
+      if (runtimeLastError?.message) {
+        rejectOnce(new Error(runtimeLastError.message));
+        return;
+      }
+
+      resolveOnce();
+    };
+
+    try {
+      const maybePromise = tabsApi.create({ url }, callback) as Promise<unknown> | void;
+
+      if (maybePromise && typeof maybePromise.then === "function") {
+        maybePromise.then(() => resolveOnce()).catch((error: unknown) => rejectOnce(error));
+      }
+    } catch (error) {
+      rejectOnce(error);
+    }
+  });
+}
+
+function renderRecoveryList(elements: OptionsElements, entries: RecoveryItem[]): void {
+  if (entries.length === 0) {
+    elements.recoveryList.replaceChildren();
+    setRecoveryEmpty(elements, "No recently suspended tabs yet.", false);
+    return;
+  }
+
+  const rows: HTMLElement[] = entries.map((entry) => {
+    const row = document.createElement("li");
+    row.className = "recovery-item";
+
+    const details = document.createElement("div");
+    details.className = "recovery-item-details";
+
+    const title = document.createElement("p");
+    title.className = "recovery-item-title";
+    title.textContent = getRecoveryTitle(entry.title);
+    details.appendChild(title);
+
+    const urlEl = document.createElement("p");
+    urlEl.className = "recovery-item-url";
+    urlEl.textContent = entry.url;
+    urlEl.title = entry.url;
+    details.appendChild(urlEl);
+
+    const capturedAt = document.createElement("p");
+    capturedAt.className = "recovery-item-captured";
+    capturedAt.textContent = formatCapturedAtMinute(entry.suspendedAtMinute);
+    details.appendChild(capturedAt);
+
+    const reopenButton = document.createElement("button");
+    reopenButton.type = "button";
+    reopenButton.textContent = "Reopen";
+
+    const validation = validateRestorableUrl(entry.url);
+    if (!validation.ok) {
+      reopenButton.disabled = true;
+      reopenButton.title = "URL is no longer eligible for restore.";
+    } else {
+      reopenButton.addEventListener("click", () => {
+        reopenButton.disabled = true;
+        void createTabWithCompatibility(validation.url)
+          .then(() => {
+            setStatus(elements, "Reopened suspended tab in a new tab.");
+          })
+          .catch(() => {
+            setStatus(elements, "Failed to reopen suspended tab.");
+            reopenButton.disabled = false;
+          });
+      });
+    }
+
+    row.appendChild(details);
+    row.appendChild(reopenButton);
+    return row;
+  });
+
+  elements.recoveryList.replaceChildren(...rows);
+  setRecoveryEmpty(elements, "", true);
+}
+
+async function loadAndRenderRecovery(elements: OptionsElements): Promise<void> {
+  try {
+    const recoveryEntries = await loadRecoveryFromStorage();
+    renderRecoveryList(elements, recoveryEntries);
+  } catch {
+    elements.recoveryList.replaceChildren();
+    setRecoveryEmpty(elements, "Failed to load recently suspended tabs.", false);
+  }
 }
 
 async function loadAndRenderSettings(elements: OptionsElements): Promise<void> {
@@ -188,7 +355,7 @@ async function initializeOptionsPage(): Promise<void> {
   }
 
   wireFormSubmission(elements);
-  await loadAndRenderSettings(elements);
+  await Promise.all([loadAndRenderSettings(elements), loadAndRenderRecovery(elements)]);
 }
 
 void initializeOptionsPage();

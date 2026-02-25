@@ -10,6 +10,7 @@ import {
 const TOO_LONG_URL = `https://example.com/${"a".repeat(2100)}`;
 const SETTINGS_STORAGE_KEY = "settings";
 const ACTIVITY_STORAGE_KEY = "activityState";
+const RECOVERY_STORAGE_KEY = "recoveryState";
 
 function decodePayloadFromUpdateCall(updateCall) {
   const [, updateProperties] = updateCall;
@@ -64,6 +65,17 @@ test("runSuspendSweep suspends eligible idle tab with encoded payload", { concur
   assert.equal(payload.u, "https://example.com/page?x=1");
   assert.equal(payload.t, "Example Tab");
   assert.equal(payload.ts, "70");
+  await backgroundModule.__testing.flushPersistedRecoveryWrites();
+  assert.deepEqual(calls.storageData[RECOVERY_STORAGE_KEY], {
+    schemaVersion: 1,
+    entries: [
+      {
+        url: "https://example.com/page?x=1",
+        title: "Example Tab",
+        suspendedAtMinute: 70
+      }
+    ]
+  });
 });
 
 test("runSuspendSweep skips active, pinned, audible, internal, invalid-id, and missing-url tabs", { concurrency: false }, async () => {
@@ -286,6 +298,73 @@ test("action click skips URLs above the restorable max length", { concurrency: f
   await flushAsyncWork();
 
   assert.equal(calls.tabsUpdateCalls.length, 0);
+});
+
+test("recovery ledger dedupes URLs and caps at 100 entries", { concurrency: false }, async () => {
+  setNowMinute(300);
+
+  const { events, calls, backgroundModule } = await importBackgroundWithMock();
+  await backgroundModule.__testing.waitForRuntimeReady();
+  backgroundModule.__testing.resetActivityState();
+
+  for (let i = 0; i < 105; i += 1) {
+    events.actionOnClicked.dispatch({
+      id: 10_000 + i,
+      active: true,
+      pinned: false,
+      audible: false,
+      url: `https://example.com/recovery-${i}`,
+      title: `Recovery ${i}`
+    });
+  }
+
+  events.actionOnClicked.dispatch({
+    id: 20_000,
+    active: true,
+    pinned: false,
+    audible: false,
+    url: "https://example.com/recovery-104",
+    title: "Recovery 104 latest"
+  });
+
+  await flushAsyncWork();
+  await backgroundModule.__testing.flushPersistedRecoveryWrites();
+
+  const entries = calls.storageData[RECOVERY_STORAGE_KEY]?.entries ?? [];
+  assert.equal(entries.length, 100);
+  assert.equal(entries[0].url, "https://example.com/recovery-104");
+  assert.equal(entries[0].title, "Recovery 104 latest");
+  assert.equal(entries.some((entry) => entry.url === "https://example.com/recovery-0"), false);
+});
+
+test("recovery persistence failure does not block suspend success", { concurrency: false }, async () => {
+  setNowMinute(301);
+
+  const { events, calls, backgroundModule } = await importBackgroundWithMock({
+    storageSetResponder(items) {
+      if (items[RECOVERY_STORAGE_KEY]) {
+        throw new Error("simulated recovery write failure");
+      }
+    }
+  });
+
+  await backgroundModule.__testing.waitForRuntimeReady();
+  backgroundModule.__testing.resetActivityState();
+
+  events.actionOnClicked.dispatch({
+    id: 3030,
+    active: true,
+    pinned: false,
+    audible: false,
+    url: "https://example.com/recovery-failure",
+    title: "Recovery failure path"
+  });
+
+  await flushAsyncWork();
+  await backgroundModule.__testing.flushPersistedRecoveryWrites();
+
+  assert.equal(calls.tabsUpdateCalls.length, 1);
+  assert.equal(calls.tabsUpdateCalls[0][0], 3030);
 });
 
 test("payload URL builder round-trips encoded fields", { concurrency: false }, async () => {

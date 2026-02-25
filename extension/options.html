@@ -80,6 +80,51 @@
         gap: 12px;
       }
 
+      .recovery-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 10px;
+      }
+
+      .recovery-item {
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        padding: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .recovery-item-details {
+        min-width: 0;
+      }
+
+      .recovery-item-title,
+      .recovery-item-url,
+      .recovery-item-captured {
+        margin: 0;
+      }
+
+      .recovery-item-title {
+        font-weight: 600;
+      }
+
+      .recovery-item-url {
+        color: #374151;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .recovery-item-captured {
+        margin-top: 2px;
+        color: #6b7280;
+        font-size: 0.9rem;
+      }
+
       button {
         border: 1px solid #1f2937;
         background: #1f2937;
@@ -133,6 +178,13 @@
             <textarea id="excludedHosts" name="excludedHosts" spellcheck="false" placeholder="example.com\nnews.example.org"></textarea>
             <p class="hint">Supports exact hosts (example.com) and wildcard subdomains (*.example.com, excludes subdomains only).</p>
           </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Recently Suspended Tabs</legend>
+          <p class="hint">Recovery list for reopening suspended URLs after extension reloads or window loss.</p>
+          <p class="hint" id="recoveryEmpty" role="status" aria-live="polite">Loading recently suspended tabs...</p>
+          <ul id="recoveryList" class="recovery-list" aria-label="Recently suspended tabs"></ul>
         </fieldset>
 
         <div class="actions">

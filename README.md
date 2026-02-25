@@ -3,7 +3,7 @@
 A privacy-first Safari Web Extension that suspends idle tabs and restores them safely.
 
 ## Current Status
-- Plan 0-10 are implemented.
+- Plan 0-10, 13, and 14 are implemented.
 - Local QA hardening is documented in `docs/qa-checklist.md` and `docs/plans/plan-8-qa-hardening.md`.
 - v1 target remains macOS Safari with no telemetry.
 
@@ -15,6 +15,7 @@ A privacy-first Safari Web Extension that suspends idle tabs and restores them s
 - Suspended page uses previous tab title context, shows full original URL with click-to-copy feedback, and keeps URL display cropped to one line for readability.
 - Restore flow validates URL safety (`http/https`, max 2048 chars) before navigation, and restore enablement remains validator-gated.
 - Settings are versioned in `chrome.storage.local` under `settings` with runtime live updates via `storage.onChanged`.
+- Recovery history for recently suspended tabs is versioned in `chrome.storage.local` under `recoveryState` and exposed in Options as one-click reopen entries.
 - Host exclusions support exact hosts (`example.com`) and wildcard subdomain rules (`*.example.com`, subdomains only).
 
 ## Non-Goals and Limits (v1)
@@ -64,6 +65,8 @@ Use `docs/qa-checklist.md` for the canonical release-readiness checklist. Core s
   - Timeout is minute-granular with a 1-minute sweep cadence (for a `2` minute timeout, expect suspend in roughly 2-3 minutes after tab loses focus).
 - Restore button disabled:
   - Check suspended payload URL validity (`http/https`) and max URL length (2048).
+- Tabs disappeared after extension reload:
+  - Open Options and use the `Recently Suspended Tabs` list to reopen recoverable URLs in new tabs.
 
 ## Repository Layout
 - `ROADMAP.md`: high-level plan status + global cross-plan decisions.

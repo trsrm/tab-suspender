@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 
 const OPTIONS_MODULE_PATH = path.resolve("build/extension/options.js");
 const SETTINGS_STORAGE_KEY = "settings";
+const RECOVERY_STORAGE_KEY = "recoveryState";
 const REAL_DOCUMENT = globalThis.document;
 
 function createEvent() {
@@ -26,7 +27,7 @@ function createEvent() {
 function createEventTarget(base = {}) {
   const listeners = new Map();
 
-  return {
+  const target = {
     ...base,
     addEventListener(type, listener) {
       listeners.set(type, listener);
@@ -37,12 +38,48 @@ function createEventTarget(base = {}) {
       if (typeof listener === "function") {
         listener(payload);
       }
+    },
+    click() {
+      this.dispatch("click", {
+        preventDefault() {}
+      });
     }
   };
+
+  return target;
+}
+
+function createNode(tagName, base = {}) {
+  const node = createEventTarget({
+    tagName: tagName.toUpperCase(),
+    children: [],
+    textContent: "",
+    hidden: false,
+    disabled: false,
+    title: "",
+    className: "",
+    value: "",
+    checked: false,
+    attributes: {},
+    type: "",
+    appendChild(child) {
+      this.children.push(child);
+      return child;
+    },
+    replaceChildren(...nextChildren) {
+      this.children = [...nextChildren];
+    },
+    setAttribute(name, value) {
+      this.attributes[name] = String(value);
+    },
+    ...base
+  });
+
+  return node;
 }
 
 function createInput({ value = "", checked = false } = {}) {
-  return createEventTarget({
+  return createNode("input", {
     value,
     checked,
     disabled: false,
@@ -54,7 +91,7 @@ function createInput({ value = "", checked = false } = {}) {
 }
 
 function createForm() {
-  const form = createEventTarget({});
+  const form = createNode("form", {});
 
   return {
     ...form,
@@ -67,7 +104,7 @@ function createForm() {
 }
 
 function createElement({ textContent = "", hidden = false } = {}) {
-  return createEventTarget({
+  return createNode("p", {
     textContent,
     hidden,
     disabled: false
@@ -83,7 +120,9 @@ function createDom() {
     skipAudible: createInput({ checked: false }),
     excludedHosts: createInput(),
     saveButton: createElement(),
-    status: createElement({ textContent: "Loading settings..." })
+    status: createElement({ textContent: "Loading settings..." }),
+    recoveryEmpty: createElement({ textContent: "Loading recently suspended tabs..." }),
+    recoveryList: createNode("ul")
   };
 
   return {
@@ -91,19 +130,50 @@ function createDom() {
     document: {
       getElementById(id) {
         return Object.prototype.hasOwnProperty.call(elements, id) ? elements[id] : null;
+      },
+      createElement(tagName) {
+        return createNode(tagName);
       }
     }
   };
 }
 
-function createChromeStorageMock(storageSeed = {}) {
+function createChromeStorageMock({ storageSeed = {}, tabsCreateResponder = () => ({ id: 1 }) } = {}) {
   const storageData = { ...storageSeed };
   const storageGetCalls = [];
   const storageSetCalls = [];
+  const tabsCreateCalls = [];
 
   const chromeMock = {
     runtime: {
       lastError: undefined
+    },
+    tabs: {
+      create(createProperties, callback) {
+        tabsCreateCalls.push(createProperties);
+
+        return Promise.resolve()
+          .then(() => tabsCreateResponder(createProperties))
+          .then((result) => {
+            if (callback) {
+              callback(result);
+            }
+
+            return result;
+          })
+          .catch((error) => {
+            if (callback) {
+              chromeMock.runtime.lastError = {
+                message: error instanceof Error ? error.message : String(error)
+              };
+              callback(undefined);
+              chromeMock.runtime.lastError = undefined;
+              return undefined;
+            }
+
+            throw error;
+          });
+      }
     },
     storage: {
       onChanged: createEvent(),
@@ -138,7 +208,8 @@ function createChromeStorageMock(storageSeed = {}) {
     chromeMock,
     storageData,
     storageGetCalls,
-    storageSetCalls
+    storageSetCalls,
+    tabsCreateCalls
   };
 }
 
@@ -146,9 +217,9 @@ async function flushAsyncWork() {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
-async function importOptionsWithMocks(storageSeed = {}) {
+async function importOptionsWithMocks({ storageSeed = {}, tabsCreateResponder } = {}) {
   const { elements, document } = createDom();
-  const storageMock = createChromeStorageMock(storageSeed);
+  const storageMock = createChromeStorageMock({ storageSeed, tabsCreateResponder });
 
   globalThis.document = document;
   globalThis.chrome = storageMock.chromeMock;
@@ -164,8 +235,9 @@ async function importOptionsWithMocks(storageSeed = {}) {
 test("options page loads defaults when storage is empty", { concurrency: false }, async () => {
   const { elements, storageGetCalls } = await importOptionsWithMocks();
 
-  assert.equal(storageGetCalls.length, 1);
+  assert.equal(storageGetCalls.length, 2);
   assert.equal(storageGetCalls[0], SETTINGS_STORAGE_KEY);
+  assert.equal(storageGetCalls[1], RECOVERY_STORAGE_KEY);
   assert.equal(elements.idleMinutes.value, "60");
   assert.equal(elements.skipPinned.checked, true);
   assert.equal(elements.skipAudible.checked, true);
@@ -175,13 +247,15 @@ test("options page loads defaults when storage is empty", { concurrency: false }
 
 test("options page loads persisted settings values", { concurrency: false }, async () => {
   const { elements } = await importOptionsWithMocks({
-    [SETTINGS_STORAGE_KEY]: {
-      schemaVersion: 1,
-      settings: {
-        idleMinutes: 90,
-        excludedHosts: ["example.com", "*.news.example.org"],
-        skipPinned: false,
-        skipAudible: true
+    storageSeed: {
+      [SETTINGS_STORAGE_KEY]: {
+        schemaVersion: 1,
+        settings: {
+          idleMinutes: 90,
+          excludedHosts: ["example.com", "*.news.example.org"],
+          skipPinned: false,
+          skipAudible: true
+        }
       }
     }
   });
@@ -252,6 +326,62 @@ test("invalid idle minutes blocks save and shows field error", { concurrency: fa
   assert.equal(elements.idleMinutesError.hidden, false);
   assert.equal(elements.idleMinutesError.textContent, "Enter a whole number from 1 to 1440.");
   assert.equal(elements.status.textContent, "Settings were not saved.");
+});
+
+test("options page renders recently suspended list and reopens valid entries", { concurrency: false }, async () => {
+  const { elements, tabsCreateCalls } = await importOptionsWithMocks({
+    storageSeed: {
+      [RECOVERY_STORAGE_KEY]: {
+        schemaVersion: 1,
+        entries: [
+          {
+            url: "https://example.com/a",
+            title: "A",
+            suspendedAtMinute: 100
+          },
+          {
+            url: "https://example.com/b",
+            title: "",
+            suspendedAtMinute: 90
+          }
+        ]
+      }
+    }
+  });
+
+  assert.equal(elements.recoveryList.children.length, 2);
+  assert.equal(elements.recoveryEmpty.hidden, true);
+
+  const firstRow = elements.recoveryList.children[0];
+  const reopenButton = firstRow.children[1];
+  reopenButton.click();
+  await flushAsyncWork();
+
+  assert.equal(tabsCreateCalls.length, 1);
+  assert.deepEqual(tabsCreateCalls[0], { url: "https://example.com/a" });
+  assert.equal(elements.status.textContent, "Reopened suspended tab in a new tab.");
+});
+
+test("options page disables reopen for invalid recovery URLs", { concurrency: false }, async () => {
+  const { elements, tabsCreateCalls } = await importOptionsWithMocks({
+    storageSeed: {
+      [RECOVERY_STORAGE_KEY]: {
+        schemaVersion: 1,
+        entries: [
+          {
+            url: "chrome://settings",
+            title: "Not restorable",
+            suspendedAtMinute: 120
+          }
+        ]
+      }
+    }
+  });
+
+  assert.equal(elements.recoveryList.children.length, 0);
+  assert.equal(elements.recoveryEmpty.hidden, false);
+  assert.equal(elements.recoveryEmpty.textContent, "No recently suspended tabs yet.");
+  assert.equal(tabsCreateCalls.length, 0);
 });
 
 test.afterEach(() => {

@@ -64,6 +64,8 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [ ] Plan 11: (draft) Analyze project for KISS, YAGNI, DRY, performance, reliability, simplicity, over-engineering, and other anti-patterns; create separate plans for each perspective (don't do any changes).
 - [ ] Plan 12: (draft) Analyze and suggest features, create separate plans for each feature, but do not implement any of them.
 - [x] Plan 13: Reliable auto-suspend timeout (focus-based + restart-safe) ([details](docs/plans/plan-13-reliable-auto-suspend-timeout.md))
+- [x] Plan 14: Reload-safe recovery ledger + options reopen flow ([details](docs/plans/plan-14-reload-safe-recovery.md))
+- [ ] Plan 15: (draft) Package a Safari Web Extension that can be installed to Safari (XCode build?)
 
 ## Governance Rules
 - Execute one plan per implementation turn.
@@ -127,6 +129,10 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-016**: Auto-suspend idle timing is based on unfocused duration, backed by persisted activity state so eligibility survives service-worker restarts.
   - Alternatives: continue memory-only activity tracking and generic tab-update-driven timeout resets.
   - Impact: predictable timeout behavior that aligns with user focus changes and remains reliable across MV3 lifecycle restarts.
+### 2026-02-26
+- **D-017**: Suspended-tab recovery fallback is persisted as a bounded, deduped URL ledger and exposed via Options-only manual reopen controls.
+  - Alternatives: automatic startup reopen, toolbar-only recovery action, or no recovery fallback.
+  - Impact: users can recover dropped suspended tabs after extension reloads without introducing automatic side effects.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -143,3 +149,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-25: Completed Plan 9 technical debt cleanup with contributor documentation, centralized background callback/Promise compatibility handling, and shared background test harness utilities.
 - 2026-02-25: Completed Plan 10 suspended-page UX polish with title/document-title improvements, URL copy interaction, stronger restore CTA styling, and extension icon wiring.
 - 2026-02-25: Completed Plan 13 reliable auto-suspend timeout with focus-based idle semantics, persisted activity hydration/persistence, and restart-durability coverage.
+- 2026-02-26: Completed Plan 14 reload-safe recovery with versioned suspended-tab recovery storage, options-based reopen UI, and regression coverage for recovery persistence/failure handling.

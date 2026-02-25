@@ -19,6 +19,19 @@ export interface StoredActivityStateV1 {
   activity: TabActivity[];
 }
 
+export interface RecoveryEntry {
+  url: string;
+  title: string;
+  suspendedAtMinute: number;
+}
+
+export type RecoverySchemaVersion = 1;
+
+export interface StoredRecoveryStateV1 {
+  schemaVersion: RecoverySchemaVersion;
+  entries: RecoveryEntry[];
+}
+
 export type SuspendReason =
   | "eligible"
   | "active"

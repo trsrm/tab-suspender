@@ -1,9 +1,10 @@
 import { evaluateSuspendDecision } from "./policy.js";
-import type { PolicyEvaluatorInput, Settings, SuspendPayload, TabActivity } from "./types.js";
+import type { PolicyEvaluatorInput, RecoveryEntry, Settings, SuspendPayload, TabActivity } from "./types.js";
 import { validateRestorableUrl } from "./url-safety.js";
 import { DEFAULT_SETTINGS, SETTINGS_STORAGE_KEY, decodeStoredSettings, loadSettingsFromStorage } from "./settings-store.js";
 import { isExcludedUrlByHost } from "./matcher.js";
 import { loadActivityFromStorage, saveActivityToStorage } from "./activity-store.js";
+import { loadRecoveryFromStorage, MAX_RECOVERY_ENTRIES, saveRecoveryToStorage } from "./recovery-store.js";
 
 const LOG_PREFIX = "[tab-suspender]";
 const MINUTE_MS = 60_000;
@@ -48,6 +49,7 @@ type SuspendEvaluationOptions = {
 
 const activityByTabId = new Map<number, TabActivity>();
 const activeTabIdByWindowId = new Map<number, number>();
+let recoveryEntries: RecoveryEntry[] = [];
 let focusedWindowId: number | null = null;
 let currentSettings: Settings = {
   idleMinutes: DEFAULT_SETTINGS.idleMinutes,
@@ -60,6 +62,7 @@ let settingsReady: Promise<void> = Promise.resolve();
 let activityReady: Promise<void> = Promise.resolve();
 let runtimeReady: Promise<void> = Promise.resolve();
 let activityPersistQueue: Promise<void> = Promise.resolve();
+let recoveryPersistQueue: Promise<void> = Promise.resolve();
 
 function log(message: string, details?: unknown): void {
   if (details === undefined) {
@@ -106,11 +109,32 @@ async function persistActivitySnapshot(): Promise<void> {
   await saveActivityToStorage(snapshotActivityState());
 }
 
+function snapshotRecoveryState(): RecoveryEntry[] {
+  return recoveryEntries.map((entry) => ({
+    url: entry.url,
+    title: entry.title,
+    suspendedAtMinute: entry.suspendedAtMinute
+  }));
+}
+
+async function persistRecoverySnapshot(): Promise<void> {
+  const persisted = await saveRecoveryToStorage(snapshotRecoveryState());
+  recoveryEntries = persisted.entries;
+}
+
 function schedulePersistActivity(): void {
   activityPersistQueue = activityPersistQueue
     .then(() => persistActivitySnapshot())
     .catch((error: unknown) => {
       log("Failed to persist activity snapshot.", error);
+    });
+}
+
+function schedulePersistRecovery(): void {
+  recoveryPersistQueue = recoveryPersistQueue
+    .then(() => persistRecoverySnapshot())
+    .catch((error: unknown) => {
+      log("Failed to persist recovery snapshot.", error);
     });
 }
 
@@ -143,6 +167,15 @@ async function hydrateActivityFromStorage(): Promise<void> {
   } catch (error) {
     activityByTabId.clear();
     log("Failed to load activity state from storage. Falling back to empty state.", error);
+  }
+}
+
+async function hydrateRecoveryFromStorage(): Promise<void> {
+  try {
+    recoveryEntries = await loadRecoveryFromStorage();
+  } catch (error) {
+    recoveryEntries = [];
+    log("Failed to load recovery state from storage. Falling back to empty state.", error);
   }
 }
 
@@ -415,6 +448,17 @@ function buildSuspendPayload(tab: QueryTab, nowMinute: number): SuspendPayload |
   };
 }
 
+function trackSuspendedRecoveryEntry(payload: SuspendPayload, suspendedAtMinute: number): void {
+  const nextEntry: RecoveryEntry = {
+    url: payload.u,
+    title: payload.t,
+    suspendedAtMinute
+  };
+
+  recoveryEntries = [nextEntry, ...recoveryEntries].slice(0, MAX_RECOVERY_ENTRIES * 2);
+  schedulePersistRecovery();
+}
+
 function encodeSuspendedUrl(payload: SuspendPayload): string {
   const params = new URLSearchParams();
   params.set("u", payload.u);
@@ -460,6 +504,7 @@ async function suspendTabIfEligible(
     await updateTab(tab.id, { url: encodeSuspendedUrl(payload) });
     markTabUpdated(tab.id, tab.windowId, nowMinute);
     schedulePersistActivity();
+    trackSuspendedRecoveryEntry(payload, nowMinute);
   } catch (error) {
     log("Failed to suspend tab.", {
       tabId: tab.id,
@@ -588,8 +633,9 @@ async function seedActiveTabsOnStartup(): Promise<boolean> {
 async function initializeRuntimeState(): Promise<void> {
   settingsReady = hydrateSettingsFromStorage();
   activityReady = hydrateActivityFromStorage();
+  const recoveryReady = hydrateRecoveryFromStorage();
 
-  await Promise.all([settingsReady, activityReady]);
+  await Promise.all([settingsReady, activityReady, recoveryReady]);
 
   const pruned = await pruneStaleActivityEntries();
   const seeded = await seedActiveTabsOnStartup();
@@ -833,6 +879,9 @@ export const __testing = {
   },
   flushPersistedActivityWrites(): Promise<void> {
     return activityPersistQueue;
+  },
+  flushPersistedRecoveryWrites(): Promise<void> {
+    return recoveryPersistQueue;
   },
   getCurrentSettings(): Settings {
     return cloneSettings(currentSettings);

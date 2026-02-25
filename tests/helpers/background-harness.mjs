@@ -20,7 +20,12 @@ function createEvent() {
   };
 }
 
-export function createChromeMock({ queryResponder = () => [], updateResponder = () => ({}), storageSeed = {} } = {}) {
+export function createChromeMock({
+  queryResponder = () => [],
+  updateResponder = () => ({}),
+  storageSeed = {},
+  storageSetResponder = () => undefined
+} = {}) {
   const runtimeOnInstalled = createEvent();
   const runtimeOnStartup = createEvent();
   const runtimeOnMessage = createEvent();
@@ -126,12 +131,25 @@ export function createChromeMock({ queryResponder = () => [], updateResponder = 
         },
         set(items, callback) {
           storageSetCalls.push(items);
-          Object.assign(storageData, items);
 
           return Promise.resolve().then(() => {
+            storageSetResponder(items);
+            Object.assign(storageData, items);
+
             if (callback) {
               callback();
             }
+          }).catch((error) => {
+            if (callback) {
+              chromeMock.runtime.lastError = {
+                message: error instanceof Error ? error.message : String(error)
+              };
+              callback();
+              chromeMock.runtime.lastError = undefined;
+              return;
+            }
+
+            throw error;
           });
         }
       }
