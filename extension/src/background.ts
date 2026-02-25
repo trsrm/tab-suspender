@@ -1,5 +1,6 @@
 import { evaluateSuspendDecision } from "./policy.js";
 import type { PolicyEvaluatorInput, Settings, SuspendPayload, TabActivity } from "./types.js";
+import { validateRestorableUrl } from "./url-safety.js";
 
 const LOG_PREFIX = "[tab-suspender]";
 const MINUTE_MS = 60_000;
@@ -237,6 +238,8 @@ function buildPolicyInput(
       ? null
       : activityByTabId.get(tabId) ?? null;
 
+  const urlValidation = validateRestorableUrl(tab.url);
+
   return {
     tab: {
       active: options.ignoreActive ? false : tab.active === true,
@@ -249,7 +252,7 @@ function buildPolicyInput(
     nowMinute,
     flags: {
       excludedHost: false,
-      urlTooLong: false
+      urlTooLong: urlValidation.ok ? false : urlValidation.reason === "tooLong"
     }
   };
 }
@@ -263,12 +266,14 @@ function sanitizeSuspendedTitle(title: unknown): string {
 }
 
 function buildSuspendPayload(tab: QueryTab, nowMinute: number): SuspendPayload | null {
-  if (typeof tab.url !== "string" || tab.url.trim().length === 0) {
+  const urlValidation = validateRestorableUrl(tab.url);
+
+  if (!urlValidation.ok) {
     return null;
   }
 
   return {
-    u: tab.url,
+    u: urlValidation.url,
     t: sanitizeSuspendedTitle(tab.title),
     ts: nowMinute
   };

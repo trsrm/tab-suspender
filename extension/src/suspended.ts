@@ -1,7 +1,11 @@
 import type { SuspendPayload } from "./types.js";
+import { validateRestorableUrl } from "./url-safety.js";
 
 const MINUTE_MS = 60_000;
 const MAX_TITLE_LENGTH = 120;
+const STATUS_READY = "Ready to restore this tab.";
+const STATUS_RESTORING = "Restoring tab...";
+const STATUS_RESTORE_FAILED = "Restore failed. Please try again.";
 
 function getSearchParams(): URLSearchParams {
   const search = typeof globalThis.location?.search === "string" ? globalThis.location.search : "";
@@ -44,6 +48,19 @@ function formatCapturedAt(ts: number): string {
   }
 }
 
+function getInvalidPayloadStatus(reason: "missing" | "tooLong" | "invalidProtocol" | "invalidUrl"): string {
+  switch (reason) {
+    case "missing":
+      return "Cannot restore: missing original URL.";
+    case "tooLong":
+      return "Cannot restore: original URL is too long.";
+    case "invalidProtocol":
+      return "Cannot restore: original URL protocol is not supported.";
+    case "invalidUrl":
+      return "Cannot restore: original URL is invalid.";
+  }
+}
+
 const params = getSearchParams();
 const payload = parseSuspendPayload(params);
 
@@ -52,6 +69,7 @@ const summaryEl = document.getElementById("summary");
 const capturedAtEl = document.getElementById("capturedAt");
 const statusEl = document.getElementById("status");
 const restoreButton = document.getElementById("restoreButton") as HTMLButtonElement | null;
+const restoreUrlValidation = validateRestorableUrl(payload.u);
 
 if (titleEl) {
   titleEl.textContent = payload.t.length > 0 ? payload.t : "Suspended tab";
@@ -66,9 +84,29 @@ if (capturedAtEl) {
 }
 
 if (statusEl) {
-  statusEl.textContent = "Restore is disabled in Plan 4 and will be implemented in Plan 5.";
+  statusEl.textContent = restoreUrlValidation.ok ? STATUS_READY : getInvalidPayloadStatus(restoreUrlValidation.reason);
 }
 
 if (restoreButton) {
-  restoreButton.disabled = true;
+  restoreButton.disabled = !restoreUrlValidation.ok;
+}
+
+if (restoreButton && restoreUrlValidation.ok) {
+  restoreButton.addEventListener("click", () => {
+    restoreButton.disabled = true;
+
+    if (statusEl) {
+      statusEl.textContent = STATUS_RESTORING;
+    }
+
+    try {
+      globalThis.location.replace(restoreUrlValidation.url);
+    } catch {
+      if (statusEl) {
+        statusEl.textContent = STATUS_RESTORE_FAILED;
+      }
+
+      restoreButton.disabled = false;
+    }
+  });
 }

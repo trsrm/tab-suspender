@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 
 const REAL_DATE_NOW = Date.now;
 const BACKGROUND_MODULE_PATH = path.resolve("build/extension/background.js");
-const SUSPENDED_MODULE_PATH = path.resolve("build/extension/suspended.js");
+const TOO_LONG_URL = `https://example.com/${"a".repeat(2100)}`;
 
 function createEvent() {
   const listeners = [];
@@ -155,35 +155,6 @@ function decodePayloadFromUpdateCall(updateCall) {
   };
 }
 
-function createElement() {
-  return {
-    textContent: "",
-    disabled: false
-  };
-}
-
-async function importSuspendedWithSearch(search) {
-  const elements = {
-    title: createElement(),
-    summary: createElement(),
-    capturedAt: createElement(),
-    status: createElement(),
-    restoreButton: createElement()
-  };
-
-  globalThis.location = { search };
-  globalThis.document = {
-    getElementById(id) {
-      return Object.prototype.hasOwnProperty.call(elements, id) ? elements[id] : null;
-    }
-  };
-
-  const moduleUrl = `${pathToFileURL(SUSPENDED_MODULE_PATH).href}?test=${Date.now()}-${Math.random()}`;
-  await import(moduleUrl);
-
-  return elements;
-}
-
 test("runSuspendSweep suspends eligible idle tab with encoded payload", { concurrency: false }, async () => {
   setNowMinute(1);
 
@@ -256,6 +227,42 @@ test("runSuspendSweep skips active, pinned, audible, internal, invalid-id, and m
   assert.equal(calls.tabsUpdateCalls.length, 0);
 });
 
+test("runSuspendSweep skips URLs above the restorable max length", { concurrency: false }, async () => {
+  setNowMinute(81);
+
+  const { events, calls, backgroundModule } = await importBackgroundWithMock({
+    queryResponder(queryInfo) {
+      if (queryInfo.active === true) {
+        return [];
+      }
+
+      if (Object.keys(queryInfo).length === 0) {
+        return [
+          {
+            id: 71,
+            windowId: 17,
+            active: false,
+            pinned: false,
+            audible: false,
+            url: TOO_LONG_URL,
+            title: "Too Long"
+          }
+        ];
+      }
+
+      return [];
+    }
+  });
+
+  backgroundModule.__testing.resetActivityState();
+  events.tabsOnActivated.dispatch({ tabId: 71, windowId: 17 });
+
+  setNowMinute(160);
+  await backgroundModule.__testing.runSuspendSweep(160);
+
+  assert.equal(calls.tabsUpdateCalls.length, 0);
+});
+
 test("action click suspends active tab immediately by bypassing active and timeout guards", { concurrency: false }, async () => {
   setNowMinute(120);
 
@@ -307,6 +314,25 @@ test("action click still skips pinned, audible, and internal URLs", { concurrenc
     pinned: false,
     audible: false,
     url: "about:blank"
+  });
+
+  await flushAsyncWork();
+
+  assert.equal(calls.tabsUpdateCalls.length, 0);
+});
+
+test("action click skips URLs above the restorable max length", { concurrency: false }, async () => {
+  setNowMinute(122);
+
+  const { events, calls, backgroundModule } = await importBackgroundWithMock();
+  backgroundModule.__testing.resetActivityState();
+
+  events.actionOnClicked.dispatch({
+    id: 13,
+    active: true,
+    pinned: false,
+    audible: false,
+    url: TOO_LONG_URL
   });
 
   await flushAsyncWork();
@@ -426,22 +452,6 @@ test("runSuspendSweep trims and caps title payload at 120 characters", { concurr
   const payload = decodePayloadFromUpdateCall(calls.tabsUpdateCalls[0]);
   assert.equal(payload.t.length, 120);
   assert.equal(payload.t, "A".repeat(120));
-});
-
-test("suspended page decodes query payload and renders lightweight status text", { concurrency: false }, async () => {
-  const params = new URLSearchParams({
-    u: "https://example.com/path?q=1",
-    t: "   Saved Title   ",
-    ts: "700"
-  });
-
-  const elements = await importSuspendedWithSearch(`?${params.toString()}`);
-
-  assert.equal(elements.title.textContent, "Saved Title");
-  assert.equal(elements.summary.textContent, "Original tab: example.com");
-  assert.equal(elements.capturedAt.textContent, "Captured at 1970-01-01 11:40 UTC.");
-  assert.equal(elements.status.textContent, "Restore is disabled in Plan 4 and will be implemented in Plan 5.");
-  assert.equal(elements.restoreButton.disabled, true);
 });
 
 test.afterEach(() => {

@@ -15,8 +15,8 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Least-privilege permissions only (`tabs`, `storage`, `alarms`) in initial scaffold.
 - [x] Strict extension-page CSP and no remote-code loading.
 - [x] Default-safe policy target: skip pinned, audible, and internal pages.
-- [ ] Explicit URL validation before suspend/restore (Plan 4/5).
-- [ ] Graceful failure handling and non-breaking fallback behavior (Plan 4/5).
+- [x] Explicit URL validation before suspend/restore (Plan 4/5).
+- [x] Graceful failure handling and non-breaking fallback behavior (Plan 4/5).
 - [ ] Storage schema versioning for future migration (Plan 6).
 - [x] Safari Web Extension lifecycle compatibility notes in architecture docs.
 - [x] Lightweight suspended page goal with bounded background work.
@@ -55,7 +55,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 2: Background Event Wiring ([details](docs/plans/plan-2-background-event-wiring.md))
 - [x] Plan 3: Policy Engine + Unit Tests ([details](docs/plans/plan-3-policy-engine.md))
 - [x] Plan 4: Suspend Action + Lightweight Suspended Screen ([details](docs/plans/plan-4-suspend-action.md))
-- [ ] Plan 5: Restore Flow + URL Safety Guards ([details](docs/plans/plan-5-restore-flow.md))
+- [x] Plan 5: Restore Flow + URL Safety Guards ([details](docs/plans/plan-5-restore-flow.md))
 - [ ] Plan 6: Essential Settings UI and Persistence ([details](docs/plans/plan-6-settings-ui.md))
 - [ ] Plan 7: Domain Exclusions With Wildcards ([details](docs/plans/plan-7-domain-exclusions.md))
 - [ ] Plan 8: QA Hardening and Release Readiness (Local) ([details](docs/plans/plan-8-qa-hardening.md))
@@ -104,6 +104,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-010**: Toolbar action click suspend bypasses only `active` and timeout checks, while preserving pinned/audible/internal safety guards.
   - Alternatives: strict full-policy click behavior, or force-suspend bypassing all guards.
   - Impact: immediate manual suspend UX without weakening core safety protections.
+- **D-011**: Restore/suspend URL safety is centralized with a shared validator and fixed 2048-character max restorable URL length.
+  - Alternatives: separate validator logic per page, higher/lower max length threshold, or protocol-permissive restore.
+  - Impact: deterministic guardrails, consistent behavior across suspend and restore flows, and simpler test coverage.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -113,3 +116,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-25: Consolidated runtime build pipeline to a single output path (`build/extension`).
 - 2026-02-25: Completed Plan 3 policy engine with deterministic decision matrix and unit tests.
 - 2026-02-25: Completed Plan 4 suspend action flow with alarm-driven sweep, action-click suspend, payload encoding, and suspended-page decoding.
+- 2026-02-25: Completed Plan 5 restore flow with shared URL validation (`http/https` + 2048-char max), safe suspended-page restore interaction, and oversized URL guardrails.
