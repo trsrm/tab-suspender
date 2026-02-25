@@ -7,6 +7,7 @@ import {
 } from "./helpers/background-harness.mjs";
 
 const SETTINGS_STORAGE_KEY = "settings";
+const ACTIVITY_STORAGE_KEY = "activityState";
 
 test("background uses persisted settings for sweep decisions", { concurrency: false }, async () => {
   setNowMinute(1);
@@ -45,7 +46,7 @@ test("background uses persisted settings for sweep decisions", { concurrency: fa
     }
   });
 
-  await backgroundModule.__testing.waitForSettingsHydration();
+  await backgroundModule.__testing.waitForRuntimeReady();
   backgroundModule.__testing.resetActivityState();
 
   setNowMinute(1);
@@ -85,7 +86,7 @@ test("storage.onChanged updates runtime settings without restart", { concurrency
     }
   });
 
-  await backgroundModule.__testing.waitForSettingsHydration();
+  await backgroundModule.__testing.waitForRuntimeReady();
   backgroundModule.__testing.resetActivityState();
 
   events.tabsOnActivated.dispatch({ tabId: 92, windowId: 9 });
@@ -136,7 +137,7 @@ test("invalid stored payload falls back to default settings", { concurrency: fal
     }
   });
 
-  await backgroundModule.__testing.waitForSettingsHydration();
+  await backgroundModule.__testing.waitForRuntimeReady();
 
   assert.deepEqual(backgroundModule.__testing.getCurrentSettings(), {
     idleMinutes: 60,
@@ -199,7 +200,7 @@ test("persisted excluded hosts prevent sweep suspend for exact match", { concurr
     }
   });
 
-  await backgroundModule.__testing.waitForSettingsHydration();
+  await backgroundModule.__testing.waitForRuntimeReady();
   backgroundModule.__testing.resetActivityState();
 
   events.tabsOnActivated.dispatch({ tabId: 93, windowId: 10 });
@@ -211,6 +212,29 @@ test("persisted excluded hosts prevent sweep suspend for exact match", { concurr
 
   assert.equal(calls.tabsUpdateCalls.length, 1);
   assert.equal(calls.tabsUpdateCalls[0][0], 95);
+});
+
+test("invalid stored activity payload falls back to empty activity state", { concurrency: false }, async () => {
+  setNowMinute(5);
+
+  const { backgroundModule } = await importBackgroundWithMock({
+    storageSeed: {
+      [ACTIVITY_STORAGE_KEY]: {
+        schemaVersion: 2,
+        activity: [
+          {
+            tabId: 1,
+            windowId: 1,
+            lastActiveAtMinute: 1,
+            lastUpdatedAtMinute: 1
+          }
+        ]
+      }
+    }
+  });
+
+  await backgroundModule.__testing.waitForRuntimeReady();
+  assert.deepEqual(backgroundModule.__testing.getActivitySnapshot(), []);
 });
 
 test.afterEach(() => {

@@ -29,8 +29,9 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 
 ## Data Flow
 1. Extension startup
-- `background.ts` schedules sweep alarm and seeds currently active tabs.
+- `background.ts` schedules sweep alarm, hydrates settings and activity state from storage, prunes stale records, and seeds currently active tabs.
 - Settings are hydrated from `chrome.storage.local["settings"]`.
+- Activity state is hydrated from `chrome.storage.local["activityState"]`.
 2. Activity capture
 - `tabs.onActivated`, `tabs.onUpdated`, `windows.onFocusChanged`, `tabs.onRemoved`, and `tabs.onReplaced` maintain bounded minute-level tab activity state.
 3. Sweep evaluation
@@ -55,7 +56,7 @@ Order in `evaluateSuspendDecision`:
 8. `eligible`
 
 Timeout basis uses:
-- `max(lastActiveAtMinute, lastUpdatedAtMinute)`.
+- `max(lastActiveAtMinute, lastUpdatedAtMinute)`, where focus switch events update the previous tab's `lastUpdatedAtMinute` as the start of unfocused idle time.
 
 ## Settings Model
 - Storage key: `settings`.
@@ -65,6 +66,12 @@ Timeout basis uses:
   - `skipPinned` / `skipAudible`: strict booleans.
   - `excludedHosts`: normalized/deduped, length and count bounded.
 - Runtime applies `storage.onChanged` updates without restart.
+
+## Activity State Model
+- Storage key: `activityState`.
+- Envelope schema: `{ schemaVersion: 1, activity: TabActivity[] }`.
+- Activity records are sanitized, deduped by `tabId`, and bounded in count before persistence.
+- Missing activity records are initialized conservatively at sweep time (`nowMinute`) so tabs become eligible only after one full timeout interval.
 
 ## Excluded Host Semantics
 - Exact rule example: `example.com` matches only `example.com`.

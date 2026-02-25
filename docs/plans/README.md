@@ -14,6 +14,7 @@ This directory stores detailed plan specs and historical execution records.
 - `plan-8-qa-hardening.md`
 - `plan-9-technical-debt-contributor-docs.md`
 - `plan-10-suspended-page-ux-polish-and-extension-icon.md`
+- `plan-13-reliable-auto-suspend-timeout.md`
 
 ## Usage
 - Keep `ROADMAP.md` concise and status-focused.

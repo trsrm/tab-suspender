@@ -12,6 +12,13 @@ export interface StoredSettingsV1 {
   settings: Settings;
 }
 
+export type ActivitySchemaVersion = 1;
+
+export interface StoredActivityStateV1 {
+  schemaVersion: ActivitySchemaVersion;
+  activity: TabActivity[];
+}
+
 export type SuspendReason =
   | "eligible"
   | "active"

@@ -63,6 +63,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 10: Suspended page UX polish + extension icon coverage ([details](docs/plans/plan-10-suspended-page-ux-polish-and-extension-icon.md))
 - [ ] Plan 11: (draft) Analyze project for KISS, YAGNI, DRY, performance, reliability, simplicity, over-engineering, and other anti-patterns; create separate plans for each perspective (don't do any changes).
 - [ ] Plan 12: (draft) Analyze and suggest features, create separate plans for each feature, but do not implement any of them.
+- [x] Plan 13: Reliable auto-suspend timeout (focus-based + restart-safe) ([details](docs/plans/plan-13-reliable-auto-suspend-timeout.md))
 
 ## Governance Rules
 - Execute one plan per implementation turn.
@@ -123,6 +124,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-015**: Suspended page UX now prioritizes full original URL visibility/copyability and previous page title context, while keeping restore eligibility strictly tied to URL safety validation.
   - Alternatives: host-only summary text, static suspended-page document title, and no explicit copy interaction.
   - Impact: better restore context and usability without weakening Plan 5 safety guardrails.
+- **D-016**: Auto-suspend idle timing is based on unfocused duration, backed by persisted activity state so eligibility survives service-worker restarts.
+  - Alternatives: continue memory-only activity tracking and generic tab-update-driven timeout resets.
+  - Impact: predictable timeout behavior that aligns with user focus changes and remains reliable across MV3 lifecycle restarts.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -138,3 +142,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-25: Completed Plan 8 QA hardening with updated docs, deterministic local regression checklist, and recorded release-readiness evidence/residual risks.
 - 2026-02-25: Completed Plan 9 technical debt cleanup with contributor documentation, centralized background callback/Promise compatibility handling, and shared background test harness utilities.
 - 2026-02-25: Completed Plan 10 suspended-page UX polish with title/document-title improvements, URL copy interaction, stronger restore CTA styling, and extension icon wiring.
+- 2026-02-25: Completed Plan 13 reliable auto-suspend timeout with focus-based idle semantics, persisted activity hydration/persistence, and restart-durability coverage.

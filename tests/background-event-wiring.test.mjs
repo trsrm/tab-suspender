@@ -33,6 +33,7 @@ test("registers listeners, schedules alarm, and seeds active tabs on startup", {
       return [];
     }
   });
+  await backgroundModule.__testing.waitForRuntimeReady();
 
   assert.equal(events.tabsOnActivated.listeners.length, 1);
   assert.equal(events.tabsOnUpdated.listeners.length, 1);
@@ -68,31 +69,66 @@ test("registers listeners, schedules alarm, and seeds active tabs on startup", {
   assertMinutePrecision(snapshot);
 });
 
-test("activation and update events maintain minute-level activity semantics", { concurrency: false }, async () => {
+test("activation and active-tab updates maintain minute-level activity semantics", { concurrency: false }, async () => {
   setNowMinute(20);
 
   const { events, calls, backgroundModule } = await importBackgroundWithMock();
+  await backgroundModule.__testing.waitForRuntimeReady();
   backgroundModule.__testing.resetActivityState();
 
   setNowMinute(21);
   events.tabsOnActivated.dispatch({ tabId: 5, windowId: 500 });
 
   setNowMinute(25);
-  events.tabsOnUpdated.dispatch(5, {}, { windowId: 500 });
+  events.tabsOnUpdated.dispatch(5, { status: "complete" }, { windowId: 500, active: true });
 
-  events.tabsOnUpdated.dispatch(-1, {}, { windowId: 500 });
+  events.tabsOnUpdated.dispatch(-1, { status: "complete" }, { windowId: 500, active: true });
 
   const snapshot = backgroundModule.__testing.getActivitySnapshot();
   assert.deepEqual(snapshot, [
     {
       tabId: 5,
       windowId: 500,
-      lastActiveAtMinute: 21,
+      lastActiveAtMinute: 25,
       lastUpdatedAtMinute: 25
     }
   ]);
   assertMinutePrecision(snapshot);
   assert.equal(calls.tabsUpdateCalls.length, 0);
+});
+
+test("inactive tab updates do not reset idle activity timestamps", { concurrency: false }, async () => {
+  setNowMinute(26);
+
+  const { events, backgroundModule } = await importBackgroundWithMock();
+  await backgroundModule.__testing.waitForRuntimeReady();
+  backgroundModule.__testing.resetActivityState();
+
+  setNowMinute(27);
+  events.tabsOnActivated.dispatch({ tabId: 5, windowId: 500 });
+
+  setNowMinute(28);
+  events.tabsOnActivated.dispatch({ tabId: 6, windowId: 500 });
+
+  setNowMinute(31);
+  events.tabsOnUpdated.dispatch(5, { status: "complete" }, { windowId: 500, active: false });
+
+  const snapshot = backgroundModule.__testing.getActivitySnapshot();
+  assert.deepEqual(snapshot, [
+    {
+      tabId: 5,
+      windowId: 500,
+      lastActiveAtMinute: 27,
+      lastUpdatedAtMinute: 28
+    },
+    {
+      tabId: 6,
+      windowId: 500,
+      lastActiveAtMinute: 28,
+      lastUpdatedAtMinute: 28
+    }
+  ]);
+  assertMinutePrecision(snapshot);
 });
 
 test("window focus tracking updates the active tab and ignores WINDOW_ID_NONE", { concurrency: false }, async () => {
@@ -107,6 +143,7 @@ test("window focus tracking updates the active tab and ignores WINDOW_ID_NONE", 
       return [];
     }
   });
+  await backgroundModule.__testing.waitForRuntimeReady();
 
   backgroundModule.__testing.resetActivityState();
   const queryCallCountBeforeIgnoredFocus = calls.queryCalls.length;
@@ -138,6 +175,7 @@ test("remove and replace events keep activity state bounded", { concurrency: fal
   setNowMinute(40);
 
   const { events, calls, backgroundModule } = await importBackgroundWithMock();
+  await backgroundModule.__testing.waitForRuntimeReady();
   backgroundModule.__testing.resetActivityState();
 
   setNowMinute(41);
@@ -169,6 +207,7 @@ test("PING response remains unchanged", { concurrency: false }, async () => {
   setNowMinute(50);
 
   const { events, backgroundModule } = await importBackgroundWithMock();
+  await backgroundModule.__testing.waitForRuntimeReady();
   backgroundModule.__testing.resetActivityState();
 
   let response;

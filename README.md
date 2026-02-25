@@ -8,7 +8,7 @@ A privacy-first Safari Web Extension that suspends idle tabs and restores them s
 - v1 target remains macOS Safari with no telemetry.
 
 ## Implemented Behavior
-- Background sweep evaluates tabs every minute and suspends eligible idle tabs.
+- Background sweep evaluates tabs every minute and suspends eligible tabs after they remain unfocused for the configured idle timeout.
 - Toolbar action click can suspend the current tab immediately by bypassing only `active` + timeout checks.
 - Policy safety guards skip active, pinned (optional), audible (optional), internal URLs, excluded hosts, and oversized URLs.
 - Suspended-page payload includes original URL, title (trimmed/capped), and capture timestamp (minute precision).
@@ -61,6 +61,7 @@ Use `docs/qa-checklist.md` for the canonical release-readiness checklist. Core s
   - Reopen options page and confirm `chrome.storage.local["settings"]` value shape (`schemaVersion: 1`).
 - Tab did not suspend:
   - Check guard conditions: active, pinned/audible toggles, internal URL, excluded host, timeout, URL length.
+  - Timeout is minute-granular with a 1-minute sweep cadence (for a `2` minute timeout, expect suspend in roughly 2-3 minutes after tab loses focus).
 - Restore button disabled:
   - Check suspended payload URL validity (`http/https`) and max URL length (2048).
 

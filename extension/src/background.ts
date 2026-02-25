@@ -3,6 +3,7 @@ import type { PolicyEvaluatorInput, Settings, SuspendPayload, TabActivity } from
 import { validateRestorableUrl } from "./url-safety.js";
 import { DEFAULT_SETTINGS, SETTINGS_STORAGE_KEY, decodeStoredSettings, loadSettingsFromStorage } from "./settings-store.js";
 import { isExcludedUrlByHost } from "./matcher.js";
+import { loadActivityFromStorage, saveActivityToStorage } from "./activity-store.js";
 
 const LOG_PREFIX = "[tab-suspender]";
 const MINUTE_MS = 60_000;
@@ -35,20 +36,30 @@ type StorageChange = {
   oldValue?: unknown;
 };
 
+type TabUpdatedChangeInfo = {
+  status?: string;
+  url?: string;
+};
+
 type SuspendEvaluationOptions = {
   ignoreActive?: boolean;
   forceTimeoutReached?: boolean;
 };
 
 const activityByTabId = new Map<number, TabActivity>();
+const activeTabIdByWindowId = new Map<number, number>();
+let focusedWindowId: number | null = null;
 let currentSettings: Settings = {
   idleMinutes: DEFAULT_SETTINGS.idleMinutes,
   excludedHosts: [...DEFAULT_SETTINGS.excludedHosts],
   skipPinned: DEFAULT_SETTINGS.skipPinned,
   skipAudible: DEFAULT_SETTINGS.skipAudible
 };
-// Suspension paths wait on this gate so sweeps and action-click use hydrated settings.
+// Suspension paths wait on this gate so sweeps and action-click use hydrated settings/activity state.
 let settingsReady: Promise<void> = Promise.resolve();
+let activityReady: Promise<void> = Promise.resolve();
+let runtimeReady: Promise<void> = Promise.resolve();
+let activityPersistQueue: Promise<void> = Promise.resolve();
 
 function log(message: string, details?: unknown): void {
   if (details === undefined) {
@@ -76,6 +87,33 @@ function cloneSettings(settings: Settings): Settings {
   };
 }
 
+function cloneActivity(activity: TabActivity): TabActivity {
+  return {
+    tabId: activity.tabId,
+    windowId: activity.windowId,
+    lastActiveAtMinute: activity.lastActiveAtMinute,
+    lastUpdatedAtMinute: activity.lastUpdatedAtMinute
+  };
+}
+
+function snapshotActivityState(): TabActivity[] {
+  return Array.from(activityByTabId.values())
+    .map(cloneActivity)
+    .sort((a, b) => a.tabId - b.tabId);
+}
+
+async function persistActivitySnapshot(): Promise<void> {
+  await saveActivityToStorage(snapshotActivityState());
+}
+
+function schedulePersistActivity(): void {
+  activityPersistQueue = activityPersistQueue
+    .then(() => persistActivitySnapshot())
+    .catch((error: unknown) => {
+      log("Failed to persist activity snapshot.", error);
+    });
+}
+
 function applyStoredSettingsValue(value: unknown): void {
   currentSettings = decodeStoredSettings(value);
 }
@@ -86,6 +124,25 @@ async function hydrateSettingsFromStorage(): Promise<void> {
   } catch (error) {
     currentSettings = cloneSettings(DEFAULT_SETTINGS);
     log("Failed to load settings from storage. Falling back to defaults.", error);
+  }
+}
+
+async function hydrateActivityFromStorage(): Promise<void> {
+  try {
+    const storedActivity = await loadActivityFromStorage();
+    activityByTabId.clear();
+
+    for (const record of storedActivity) {
+      activityByTabId.set(record.tabId, {
+        tabId: record.tabId,
+        windowId: record.windowId,
+        lastActiveAtMinute: record.lastActiveAtMinute,
+        lastUpdatedAtMinute: record.lastUpdatedAtMinute
+      });
+    }
+  } catch (error) {
+    activityByTabId.clear();
+    log("Failed to load activity state from storage. Falling back to empty state.", error);
   }
 }
 
@@ -125,23 +182,92 @@ function upsertActivity(tabId: number, windowId: number | undefined, minute: num
   return record;
 }
 
-function markTabActive(tabId: number, windowId: number | undefined, minute = getCurrentEpochMinute()): void {
+function markTabActive(tabId: number, windowId: number | undefined, minute = getCurrentEpochMinute()): boolean {
   if (!isValidId(tabId)) {
-    return;
+    return false;
   }
 
+  const existing = activityByTabId.get(tabId);
   const record = upsertActivity(tabId, windowId, minute);
+  const changed =
+    !existing ||
+    record.lastActiveAtMinute !== minute ||
+    record.lastUpdatedAtMinute !== minute ||
+    (isValidId(windowId) && record.windowId !== windowId);
+
   record.lastActiveAtMinute = minute;
   record.lastUpdatedAtMinute = minute;
-}
 
-function markTabUpdated(tabId: number, windowId: number | undefined, minute = getCurrentEpochMinute()): void {
-  if (!isValidId(tabId)) {
-    return;
+  if (isValidId(windowId)) {
+    record.windowId = windowId;
   }
 
+  return changed;
+}
+
+function markTabUpdated(tabId: number, windowId: number | undefined, minute = getCurrentEpochMinute()): boolean {
+  if (!isValidId(tabId)) {
+    return false;
+  }
+
+  const existing = activityByTabId.get(tabId);
   const record = upsertActivity(tabId, windowId, minute);
+  const changed = !existing || record.lastUpdatedAtMinute !== minute || (isValidId(windowId) && record.windowId !== windowId);
+
   record.lastUpdatedAtMinute = minute;
+
+  if (isValidId(windowId)) {
+    record.windowId = windowId;
+  }
+
+  return changed;
+}
+
+function getWindowIdForActiveTab(tabId: number): number | null {
+  for (const [windowId, activeTabId] of activeTabIdByWindowId.entries()) {
+    if (activeTabId === tabId) {
+      return windowId;
+    }
+  }
+
+  return null;
+}
+
+function clearActiveWindowMappingForTab(tabId: number): boolean {
+  let changed = false;
+
+  for (const [windowId, activeTabId] of activeTabIdByWindowId.entries()) {
+    if (activeTabId !== tabId) {
+      continue;
+    }
+
+    activeTabIdByWindowId.delete(windowId);
+    changed = true;
+  }
+
+  return changed;
+}
+
+function markWindowActiveTabInactive(windowId: number, minute: number): boolean {
+  const activeTabId = activeTabIdByWindowId.get(windowId);
+
+  if (!isValidId(activeTabId)) {
+    return false;
+  }
+
+  return markTabUpdated(activeTabId, windowId, minute);
+}
+
+function ensureTabActivityBaseline(tab: QueryTab, nowMinute: number): boolean {
+  if (!isValidId(tab.id)) {
+    return false;
+  }
+
+  if (activityByTabId.has(tab.id)) {
+    return false;
+  }
+
+  return markTabUpdated(tab.id, tab.windowId, nowMinute);
 }
 
 function normalizeError(error: unknown): Error {
@@ -313,6 +439,10 @@ async function suspendTabIfEligible(
     return;
   }
 
+  if (!options.forceTimeoutReached && ensureTabActivityBaseline(tab, nowMinute)) {
+    schedulePersistActivity();
+  }
+
   const decision = evaluateSuspendDecision(buildPolicyInput(tab, nowMinute, options));
 
   if (!decision.shouldSuspend) {
@@ -329,6 +459,7 @@ async function suspendTabIfEligible(
   try {
     await updateTab(tab.id, { url: encodeSuspendedUrl(payload) });
     markTabUpdated(tab.id, tab.windowId, nowMinute);
+    schedulePersistActivity();
   } catch (error) {
     log("Failed to suspend tab.", {
       tabId: tab.id,
@@ -338,8 +469,8 @@ async function suspendTabIfEligible(
 }
 
 async function runSuspendSweep(nowMinute = getCurrentEpochMinute()): Promise<void> {
-  // Defer sweeps until settings hydration resolves so policy decisions are deterministic.
-  await settingsReady;
+  // Defer sweeps until settings/activity hydration resolves so policy decisions are deterministic.
+  await runtimeReady;
 
   let tabs: QueryTab[];
 
@@ -357,7 +488,7 @@ async function runSuspendSweep(nowMinute = getCurrentEpochMinute()): Promise<voi
 
 async function suspendFromAction(tab: QueryTab | undefined, nowMinute = getCurrentEpochMinute()): Promise<void> {
   // Action-click bypasses only active/timeout checks; core safety guards still apply.
-  await settingsReady;
+  await runtimeReady;
 
   if (!tab) {
     return;
@@ -386,17 +517,96 @@ function scheduleSuspendSweepAlarm(): void {
   }
 }
 
-async function seedActiveTabsOnStartup(): Promise<void> {
+async function pruneStaleActivityEntries(): Promise<boolean> {
+  try {
+    const tabs = await queryTabs({});
+    const existingTabIds = new Set<number>();
+
+    for (const tab of tabs) {
+      if (isValidId(tab.id)) {
+        existingTabIds.add(tab.id);
+      }
+    }
+
+    let changed = false;
+
+    for (const tabId of activityByTabId.keys()) {
+      if (existingTabIds.has(tabId)) {
+        continue;
+      }
+
+      activityByTabId.delete(tabId);
+      changed = true;
+    }
+
+    for (const [windowId, tabId] of activeTabIdByWindowId.entries()) {
+      if (existingTabIds.has(tabId)) {
+        continue;
+      }
+
+      activeTabIdByWindowId.delete(windowId);
+      changed = true;
+    }
+
+    return changed;
+  } catch (error) {
+    log("Failed to prune stale activity entries.", error);
+    return false;
+  }
+}
+
+async function seedActiveTabsOnStartup(): Promise<boolean> {
   try {
     const tabs = await queryTabs({ active: true });
     const minute = getCurrentEpochMinute();
+    let changed = false;
 
     for (const tab of tabs) {
-      markTabActive(tab.id ?? WINDOW_ID_NONE, tab.windowId, minute);
+      if (!isValidId(tab.id)) {
+        continue;
+      }
+
+      if (markTabActive(tab.id, tab.windowId, minute)) {
+        changed = true;
+      }
+
+      if (isValidId(tab.windowId)) {
+        if (activeTabIdByWindowId.get(tab.windowId) !== tab.id) {
+          activeTabIdByWindowId.set(tab.windowId, tab.id);
+          changed = true;
+        }
+      }
     }
+
+    return changed;
   } catch (error) {
     log("Failed to seed active tab activity state.", error);
+    return false;
   }
+}
+
+async function initializeRuntimeState(): Promise<void> {
+  settingsReady = hydrateSettingsFromStorage();
+  activityReady = hydrateActivityFromStorage();
+
+  await Promise.all([settingsReady, activityReady]);
+
+  const pruned = await pruneStaleActivityEntries();
+  const seeded = await seedActiveTabsOnStartup();
+
+  if (pruned || seeded) {
+    schedulePersistActivity();
+  }
+}
+
+function isMeaningfulTabUpdate(changeInfo: unknown): boolean {
+  if (typeof changeInfo !== "object" || changeInfo === null) {
+    return false;
+  }
+
+  const typed = changeInfo as TabUpdatedChangeInfo;
+
+  return typeof typed.status === "string" || typeof typed.url === "string";
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -410,27 +620,70 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 chrome.tabs.onActivated.addListener((activeInfo: ActivatedInfo) => {
-  markTabActive(activeInfo.tabId, activeInfo.windowId);
+  const minute = getCurrentEpochMinute();
+
+  if (isValidId(activeInfo.windowId)) {
+    markWindowActiveTabInactive(activeInfo.windowId, minute);
+  }
+
+  markTabActive(activeInfo.tabId, activeInfo.windowId, minute);
+
+  if (isValidId(activeInfo.windowId)) {
+    activeTabIdByWindowId.set(activeInfo.windowId, activeInfo.tabId);
+    focusedWindowId = activeInfo.windowId;
+  }
+
+  schedulePersistActivity();
 });
 
-chrome.tabs.onUpdated.addListener((tabId: number, _changeInfo: unknown, tab: QueryTab | undefined) => {
-  markTabUpdated(tabId, tab?.windowId);
+chrome.tabs.onUpdated.addListener((tabId: number, changeInfo: unknown, tab: QueryTab | undefined) => {
+  if (!tab || tab.active !== true || !isMeaningfulTabUpdate(changeInfo)) {
+    return;
+  }
+
+  const minute = getCurrentEpochMinute();
+
+  if (markTabActive(tabId, tab.windowId, minute)) {
+    if (isValidId(tab.windowId)) {
+      activeTabIdByWindowId.set(tab.windowId, tabId);
+      focusedWindowId = tab.windowId;
+    }
+
+    schedulePersistActivity();
+  }
 });
 
 chrome.windows.onFocusChanged.addListener((windowId: number) => {
+  const minute = getCurrentEpochMinute();
+
   if (!isValidId(windowId) || windowId === chrome.windows.WINDOW_ID_NONE) {
+    if (isValidId(focusedWindowId) && markWindowActiveTabInactive(focusedWindowId, minute)) {
+      schedulePersistActivity();
+    }
+
+    focusedWindowId = null;
     return;
   }
+
+  if (isValidId(focusedWindowId) && focusedWindowId !== windowId && markWindowActiveTabInactive(focusedWindowId, minute)) {
+    schedulePersistActivity();
+  }
+
+  focusedWindowId = windowId;
 
   void queryTabs({ active: true, windowId })
     .then((tabs) => {
       const firstActiveTab = tabs[0];
 
-      if (!firstActiveTab) {
+      if (!firstActiveTab || !isValidId(firstActiveTab.id)) {
         return;
       }
 
-      markTabActive(firstActiveTab.id ?? WINDOW_ID_NONE, firstActiveTab.windowId ?? windowId);
+      if (markTabActive(firstActiveTab.id, firstActiveTab.windowId ?? windowId, minute)) {
+        schedulePersistActivity();
+      }
+
+      activeTabIdByWindowId.set(windowId, firstActiveTab.id);
     })
     .catch((error: unknown) => {
       log("Failed to resolve active tab on window focus.", error);
@@ -442,32 +695,74 @@ chrome.tabs.onRemoved.addListener((tabId: number) => {
     return;
   }
 
-  activityByTabId.delete(tabId);
+  let changed = false;
+
+  if (activityByTabId.delete(tabId)) {
+    changed = true;
+  }
+
+  if (clearActiveWindowMappingForTab(tabId)) {
+    changed = true;
+  }
+
+  if (changed) {
+    schedulePersistActivity();
+  }
 });
 
 chrome.tabs.onReplaced.addListener((addedTabId: number, removedTabId: number) => {
   const minute = getCurrentEpochMinute();
   const previous = isValidId(removedTabId) ? activityByTabId.get(removedTabId) : undefined;
+  const previousWindowId = isValidId(removedTabId) ? getWindowIdForActiveTab(removedTabId) : null;
+
+  let changed = false;
 
   if (isValidId(removedTabId)) {
-    activityByTabId.delete(removedTabId);
+    if (activityByTabId.delete(removedTabId)) {
+      changed = true;
+    }
+
+    if (clearActiveWindowMappingForTab(removedTabId)) {
+      changed = true;
+    }
   }
 
   if (!isValidId(addedTabId)) {
+    if (changed) {
+      schedulePersistActivity();
+    }
+
     return;
   }
 
   if (previous) {
+    const nextWindowId = isValidId(previousWindowId) ? previousWindowId : previous.windowId;
+
     activityByTabId.set(addedTabId, {
       ...previous,
       tabId: addedTabId,
+      windowId: nextWindowId,
       lastActiveAtMinute: minute,
       lastUpdatedAtMinute: minute
     });
-    return;
+
+    if (isValidId(nextWindowId)) {
+      activeTabIdByWindowId.set(nextWindowId, addedTabId);
+    }
+
+    changed = true;
+  } else {
+    changed = markTabUpdated(addedTabId, undefined, minute) || changed;
+
+    if (isValidId(previousWindowId)) {
+      activeTabIdByWindowId.set(previousWindowId, addedTabId);
+      changed = true;
+    }
   }
 
-  markTabUpdated(addedTabId, undefined, minute);
+  if (changed) {
+    schedulePersistActivity();
+  }
 });
 
 chrome.alarms.onAlarm.addListener((alarm: AlarmInfo | undefined) => {
@@ -507,24 +802,37 @@ chrome.runtime.onMessage.addListener(
   }
 );
 
-settingsReady = hydrateSettingsFromStorage();
+runtimeReady = initializeRuntimeState();
 scheduleSuspendSweepAlarm();
-void seedActiveTabsOnStartup();
 
 export const __testing = {
   getActivitySnapshot(): TabActivity[] {
-    return Array.from(activityByTabId.values())
-      .map((record) => ({ ...record }))
-      .sort((a, b) => a.tabId - b.tabId);
+    return snapshotActivityState();
+  },
+  getActiveTabByWindowSnapshot(): Array<{ windowId: number; tabId: number }> {
+    return Array.from(activeTabIdByWindowId.entries())
+      .map(([windowId, tabId]) => ({ windowId, tabId }))
+      .sort((a, b) => a.windowId - b.windowId);
   },
   resetActivityState(): void {
     activityByTabId.clear();
+    activeTabIdByWindowId.clear();
+    focusedWindowId = null;
   },
   runSuspendSweep(nowMinute?: number): Promise<void> {
     return runSuspendSweep(nowMinute);
   },
   waitForSettingsHydration(): Promise<void> {
     return settingsReady;
+  },
+  waitForActivityHydration(): Promise<void> {
+    return activityReady;
+  },
+  waitForRuntimeReady(): Promise<void> {
+    return runtimeReady;
+  },
+  flushPersistedActivityWrites(): Promise<void> {
+    return activityPersistQueue;
   },
   getCurrentSettings(): Settings {
     return cloneSettings(currentSettings);
