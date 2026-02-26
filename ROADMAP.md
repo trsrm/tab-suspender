@@ -81,6 +81,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 31: Disable/uninstall-safe suspended tab survival (prevent suspended tabs from closing when extension is disabled/uninstalled) ([details](docs/plans/plan-31-disable-uninstall-safe-suspended-tab-survival.md))
 - [x] Plan 32: Long-idle hours UX + aggressive sweep scaling (CPU-first) ([details](docs/plans/plan-32-hours-ui-and-long-idle-cadence.md))
 - [x] Plan 33: CPU-first lightweight runtime refactor (compiled matcher paths + adaptive sweep backoff + lighter suspended data URLs) ([details](docs/plans/plan-33-runtime-lightweight-refactor.md))
+- [x] Plan 34: Simplicity-first refactor (options modularization + shared browser compatibility wrappers) ([details](docs/plans/plan-34-simplicity-first-refactor.md))
 
 ## Governance Rules
 - Execute one plan per implementation turn.
@@ -202,6 +203,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-035**: Policy host/profile matching now uses settings-transition-compiled matcher indices, sweep cadence adds bounded adaptive backoff (`+0..+5` minutes) from sweep run stats, and suspended data URL skip detection is marker-based while preserving legacy signature compatibility.
   - Alternatives: continue per-tab rule scans and fixed cadence, or decode full data-url payloads in sweep skip path.
   - Impact: lower steady-state background CPU/allocation churn and smaller suspended-page footprint without policy/schema/permission changes.
+- **D-036**: Browser tabs/runtime callback+promise compatibility handling is centralized in `browser-compat.ts`, and options-page state/rendering dropped keyed recovery-row reuse and `WeakMap` indirection in favor of explicit bounded rerender/state flow.
+  - Alternatives: keep per-module compatibility wrappers and keyed recovery DOM diffing.
+  - Impact: lower code duplication and reduced cognitive overhead with no policy/schema/permission behavior changes.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -237,3 +241,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-26: Completed Plan 23 over-engineering reduction by centralizing background runtime state in a typed envelope, replacing generic tab API indirection with focused wrappers, and formalizing the `__testing` contract.
 - 2026-02-26: Completed Plan 24 anti-pattern/code-health hardening with shared background payload guards, typed options message maps, and dedicated settings/activity/recovery store invariant tests.
 - 2026-02-26: Completed Plan 26 per-site policy profiles with schema v2 migration, deterministic host-profile precedence, runtime effective-settings resolution, options profile CRUD, and regression coverage.
+- 2026-02-26: Completed Plan 34 simplicity-first refactor with options runtime modularization, shared tabs/runtime compatibility wrappers, and simplified recovery rerender/state handling.

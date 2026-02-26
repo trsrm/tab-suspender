@@ -2,7 +2,13 @@
 
 All notable user-facing changes are documented in this file.
 
-Current release: **1.4.1**
+Current release: **1.4.2**
+
+## [1.4.2] - 2026-02-26
+- Improved Options-page reliability by consolidating browser API compatibility handling for tab actions and diagnostics messaging.
+- Improved diagnostics UX on failure by clearing stale summary/list content so outdated results are not shown.
+- Simplified recovery list rendering flow to reduce UI edge-case drift while preserving existing reopen behavior.
+- Refactored Options runtime internals into focused modules for easier maintenance without changing suspend policy semantics.
 
 ## [1.4.1] - 2026-02-26
 - Reduced background CPU overhead by precompiling host/profile matching and removing redundant suspend-path URL parsing.

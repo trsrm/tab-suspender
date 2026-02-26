@@ -24,6 +24,7 @@ import { initializeRuntimeState as bootstrapRuntimeState } from "./background/ru
 import { createActivityRuntime, isValidId } from "./background/activity-runtime.js";
 import type { QueryTab } from "./background/activity-runtime.js";
 import { createSuspendRunner, computeSweepIntervalMinutes, decodeSuspendedTabPayload, encodeSuspendedUrl } from "./background/suspend-runner.js";
+import { queryTabsWithCompat, updateTabWithCompat } from "./browser-compat.js";
 
 const LOG_PREFIX = "[tab-suspender]";
 const MINUTE_MS = 60_000;
@@ -148,121 +149,8 @@ function computeNextSweepBackoffMinutes(currentBackoffMinutes: number, stats: Sw
   return currentBackoffMinutes;
 }
 
-function normalizeError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
-}
-
-function queryTabs(queryInfo: Record<string, unknown>): Promise<QueryTab[]> {
-  const tabsApi = chrome.tabs;
-
-  return new Promise<QueryTab[]>((resolve, reject) => {
-    let settled = false;
-
-    const rejectOnce = (error: unknown): void => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      reject(normalizeError(error));
-    };
-
-    const resolveOnce = (tabs: QueryTab[] | undefined): void => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      resolve(Array.isArray(tabs) ? tabs : []);
-    };
-
-    const callback = (tabs: QueryTab[] | undefined): void => {
-      if (settled) {
-        return;
-      }
-
-      const lastError = chrome.runtime.lastError;
-
-      if (lastError) {
-        rejectOnce(new Error(lastError.message));
-        return;
-      }
-
-      resolveOnce(tabs);
-    };
-
-    try {
-      const maybePromise = tabsApi.query(
-        queryInfo as Parameters<typeof tabsApi.query>[0],
-        callback as Parameters<typeof tabsApi.query>[1]
-      ) as Promise<QueryTab[]> | void;
-
-      if (maybePromise && typeof maybePromise.then === "function") {
-        maybePromise.then(resolveOnce).catch(rejectOnce);
-      }
-    } catch (error) {
-      rejectOnce(error);
-    }
-  });
-}
-
-function updateTab(tabId: number, updateProperties: Record<string, unknown>): Promise<void> {
-  const tabsApi = chrome.tabs;
-
-  return new Promise<void>((resolve, reject) => {
-    let settled = false;
-
-    const rejectOnce = (error: unknown): void => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      reject(normalizeError(error));
-    };
-
-    const resolveOnce = (): void => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      resolve();
-    };
-
-    const callback = (): void => {
-      if (settled) {
-        return;
-      }
-
-      const lastError = chrome.runtime.lastError;
-
-      if (lastError) {
-        rejectOnce(new Error(lastError.message));
-        return;
-      }
-
-      resolveOnce();
-    };
-
-    try {
-      const maybePromise = tabsApi.update(
-        tabId as Parameters<typeof tabsApi.update>[0],
-        updateProperties as Parameters<typeof tabsApi.update>[1],
-        callback as Parameters<typeof tabsApi.update>[2]
-      ) as Promise<unknown> | void;
-
-      if (maybePromise && typeof maybePromise.then === "function") {
-        maybePromise.then(() => resolveOnce()).catch(rejectOnce);
-      }
-    } catch (error) {
-      rejectOnce(error);
-    }
-  });
-}
-
 const activityRuntime = createActivityRuntime({
-  queryTabs,
+  queryTabs: (queryInfo) => queryTabsWithCompat<QueryTab>(queryInfo),
   getCurrentEpochMinute,
   log
 });
@@ -367,8 +255,8 @@ async function hydrateRecoveryFromStorage(): Promise<void> {
 }
 
 const suspendRunner = createSuspendRunner({
-  queryTabs,
-  updateTab,
+  queryTabs: (queryInfo) => queryTabsWithCompat<QueryTab>(queryInfo),
+  updateTab: updateTabWithCompat,
   waitForRuntimeReady: () => runtimeState.runtimeReady,
   getCurrentEpochMinute,
   getCurrentSettings: () => runtimeState.currentSettings,
@@ -532,7 +420,7 @@ chrome.windows.onFocusChanged.addListener((windowId: number) => {
 
   runtimeState.focusedWindowId = windowId;
 
-  void queryTabs({ active: true, windowId })
+  void queryTabsWithCompat<QueryTab>({ active: true, windowId })
     .then((tabs) => {
       const firstActiveTab = tabs[0];
 

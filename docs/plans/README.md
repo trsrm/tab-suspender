@@ -34,6 +34,7 @@ This directory stores detailed plan specs and historical execution records.
 - `plan-31-disable-uninstall-safe-suspended-tab-survival.md`
 - `plan-32-hours-ui-and-long-idle-cadence.md`
 - `plan-33-runtime-lightweight-refactor.md`
+- `plan-34-simplicity-first-refactor.md`
 
 ## Usage
 - Keep `ROADMAP.md` concise and status-focused.

@@ -24,12 +24,24 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
   - Versioned settings decode/sanitize/load/save helpers for `chrome.storage.local`.
 - `extension/src/storage-compat.ts`
   - Shared callback/promise storage API adapter with unified `runtime.lastError` handling.
+- `extension/src/browser-compat.ts`
+  - Shared callback/promise adapter for `tabs.query`, `tabs.update`, `tabs.create`, and `runtime.sendMessage` with unified `runtime.lastError` handling.
 - `extension/src/matcher.ts`
   - Host exclusion/profile normalization plus compiled host/profile matching indexes for low-allocation deterministic precedence checks.
 - `extension/src/url-safety.ts`
   - Shared restore/suspend URL validator (`http/https`, max length 2048).
 - `extension/src/options.ts`
-  - Options page load/save flow, validation, status messaging, and local configuration import/export controls.
+  - Options page composition root and event wiring.
+- `extension/src/options/settings.ts`
+  - Settings load/save orchestration plus settings-form validation and status flow.
+- `extension/src/options/site-profiles.ts`
+  - Site-profile row rendering, module-local row state, and input-to-profile normalization.
+- `extension/src/options/recovery.ts`
+  - Recovery list rendering and reopen actions.
+- `extension/src/options/diagnostics.ts`
+  - Diagnostics refresh messaging, summary construction, and list rendering.
+- `extension/src/options/portable-config.ts`
+  - Import/export/apply/cancel orchestration with staged import state.
 - `extension/src/portable-config.ts`
   - Portable configuration envelope builder/parser for JSON export/import (`exportSchemaVersion: 1`).
 - `extension/src/suspended.ts`
@@ -138,7 +150,7 @@ Used by:
 
 ## Reliability and Failure Handling
 - Background logs and continues when individual tab updates fail.
-- Tab query/update wrappers in background runtime support callback and Promise-style extension APIs.
+- Tab/runtime wrappers in `browser-compat.ts` support callback and Promise-style extension APIs.
 - Storage load/save wrappers are centralized in `storage-compat.ts`.
 - Suspend sweeps skip already-suspended `data:` pages via marker-based detection and still recognize legacy extension suspended pages.
 - Invalid/missing activity defaults to non-suspension (`timeoutNotReached`).

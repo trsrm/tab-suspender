@@ -644,7 +644,7 @@ test("diagnostics refresh empty/truncated states are rendered", { concurrency: f
   assert.equal(elements.diagnosticsList.children[0].children[0].textContent, "No open tabs available for diagnostics.");
 });
 
-test("recovery list reuses unchanged row nodes across rerenders", { concurrency: false }, async () => {
+test("recovery list rerenders rows across updates", { concurrency: false }, async () => {
   const { elements, optionsModule } = await importOptionsWithMocks({
     storageSeed: {
       [RECOVERY_STORAGE_KEY]: {
@@ -681,11 +681,11 @@ test("recovery list reuses unchanged row nodes across rerenders", { concurrency:
     }
   ]);
 
-  assert.equal(elements.recoveryList.children[0], firstRow);
-  assert.equal(elements.recoveryList.children[1], secondRow);
+  assert.notEqual(elements.recoveryList.children[0], firstRow);
+  assert.notEqual(elements.recoveryList.children[1], secondRow);
 });
 
-test("recovery list only replaces changed rows across rerenders", { concurrency: false }, async () => {
+test("recovery list rerender reflects changed entry content", { concurrency: false }, async () => {
   const { elements, optionsModule } = await importOptionsWithMocks({
     storageSeed: {
       [RECOVERY_STORAGE_KEY]: {
@@ -706,9 +706,6 @@ test("recovery list only replaces changed rows across rerenders", { concurrency:
     }
   });
 
-  const originalFirstRow = elements.recoveryList.children[0];
-  const originalSecondRow = elements.recoveryList.children[1];
-
   optionsModule.__testing.renderRecoveryList(elements, [
     {
       url: "https://example.com/a",
@@ -722,8 +719,11 @@ test("recovery list only replaces changed rows across rerenders", { concurrency:
     }
   ]);
 
-  assert.equal(elements.recoveryList.children[0], originalFirstRow);
-  assert.notEqual(elements.recoveryList.children[1], originalSecondRow);
+  const secondRow = elements.recoveryList.children[1];
+  const secondRowDetails = secondRow.children[0];
+  const secondRowTitle = secondRowDetails.children[0];
+
+  assert.equal(secondRowTitle.textContent, "Updated");
 });
 
 test("export action creates downloadable json file with expected name prefix", { concurrency: false }, async () => {
