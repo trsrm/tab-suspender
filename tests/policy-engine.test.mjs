@@ -18,7 +18,8 @@ const BASE_INPUT = Object.freeze({
     idleMinutes: 60,
     excludedHosts: [],
     skipPinned: true,
-    skipAudible: true
+    skipAudible: true,
+    siteProfiles: []
   },
   nowMinute: 160,
   flags: {
@@ -191,6 +192,16 @@ test("settings toggles allow pinned and audible tabs when disabled", () => {
 
   assert.deepEqual(pinnedAllowed, { shouldSuspend: true, reason: "eligible" });
   assert.deepEqual(audibleAllowed, { shouldSuspend: true, reason: "eligible" });
+});
+
+test("excludedHost flag can represent profile excludeFromSuspend overrides", () => {
+  const decision = evaluateSuspendDecision(
+    createInput({
+      flags: { excludedHost: true, urlTooLong: false, internalUrl: false }
+    })
+  );
+
+  assert.deepEqual(decision, { shouldSuspend: false, reason: "excludedHost" });
 });
 
 test("missing activity defaults to timeoutNotReached", () => {

@@ -1,7 +1,15 @@
 import { evaluateSuspendDecision } from "../policy.js";
-import type { DecodedSuspendPayload, PolicyEvaluatorInput, RecoveryEntry, Settings, SuspendPayload, TabActivity } from "../types.js";
+import type {
+  DecodedSuspendPayload,
+  PolicyEvaluatorInput,
+  RecoveryEntry,
+  ResolvedPolicySettings,
+  Settings,
+  SuspendPayload,
+  TabActivity
+} from "../types.js";
 import { validateRestorableUrlWithMetadata } from "../url-safety.js";
-import { matchesExcludedHost } from "../matcher.js";
+import { findMatchingSiteProfile, matchesExcludedHost } from "../matcher.js";
 import { MAX_RECOVERY_ENTRIES } from "../recovery-store.js";
 import {
   buildSuspendedDataUrl,
@@ -51,11 +59,13 @@ export function buildSuspendSweepQueryInfo(settings: Settings): Record<string, u
     active: false
   };
 
-  if (settings.skipPinned) {
+  const hasSiteProfiles = settings.siteProfiles.length > 0;
+
+  if (settings.skipPinned && !hasSiteProfiles) {
     queryInfo.pinned = false;
   }
 
-  if (settings.skipAudible) {
+  if (settings.skipAudible && !hasSiteProfiles) {
     queryInfo.audible = false;
   }
 
@@ -126,6 +136,34 @@ function buildSuspendPayload(tab: QueryTab, restorableUrl: string, nowMinute: nu
   };
 }
 
+function resolvePolicySettingsForHostname(settings: Settings, hostname: string | null): ResolvedPolicySettings {
+  if (!hostname) {
+    return {
+      settings,
+      matchedProfileId: null
+    };
+  }
+
+  const matchedProfile = findMatchingSiteProfile(hostname, settings.siteProfiles);
+
+  if (!matchedProfile) {
+    return {
+      settings,
+      matchedProfileId: null
+    };
+  }
+
+  return {
+    settings: {
+      ...settings,
+      idleMinutes: matchedProfile.overrides.idleMinutes ?? settings.idleMinutes,
+      skipPinned: matchedProfile.overrides.skipPinned ?? settings.skipPinned,
+      skipAudible: matchedProfile.overrides.skipAudible ?? settings.skipAudible
+    },
+    matchedProfileId: matchedProfile.id
+  };
+}
+
 function analyzeTabUrl(tab: QueryTab, settings: Settings): TabUrlAnalysis {
   const validation = validateRestorableUrlWithMetadata(tab.url);
 
@@ -167,12 +205,31 @@ export function createSuspendRunner(options: CreateSuspendRunnerOptions) {
     }
 
     const settings = options.getCurrentSettings();
-    const activity = evaluationOptions.forceTimeoutReached
-      ? getSyntheticTimedOutActivity(nowMinute, settings)
-      : options.getActivityForTab(tab.id) ?? null;
     const urlAnalysis = analyzeTabUrl(tab, settings);
+    const resolvedPolicySettings = resolvePolicySettingsForHostname(
+      settings,
+      urlAnalysis.restorableUrl ? new URL(urlAnalysis.restorableUrl).hostname : null
+    );
+    const matchedProfile = resolvedPolicySettings.matchedProfileId
+      ? settings.siteProfiles.find((profile) => profile.id === resolvedPolicySettings.matchedProfileId) ?? null
+      : null;
+    const effectiveSettings = resolvedPolicySettings.settings;
+    const profileExcluded = matchedProfile?.overrides.excludeFromSuspend === true;
+    const activity = evaluationOptions.forceTimeoutReached
+      ? getSyntheticTimedOutActivity(nowMinute, effectiveSettings)
+      : options.getActivityForTab(tab.id) ?? null;
     const decision = evaluateSuspendDecision(
-      buildPolicyInput(tab, nowMinute, settings, activity, urlAnalysis, evaluationOptions)
+      buildPolicyInput(
+        tab,
+        nowMinute,
+        effectiveSettings,
+        activity,
+        {
+          ...urlAnalysis,
+          excludedHost: urlAnalysis.excludedHost || profileExcluded
+        },
+        evaluationOptions
+      )
     );
 
     if (!decision.shouldSuspend) {

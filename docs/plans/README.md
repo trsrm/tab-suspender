@@ -29,7 +29,6 @@ This directory stores detailed plan specs and historical execution records.
 - `plan-23-over-engineering-reduction.md`
 - `plan-24-anti-patterns-and-code-health.md`
 - `plan-26-per-site-policy-profiles.md`
-- `plan-27-recovery-center-ux-enhancements.md`
 - `plan-28-settings-import-export.md`
 - `plan-29-manual-suspend-controls.md`
 - `plan-30-suspension-reason-transparency.md`

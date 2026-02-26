@@ -298,6 +298,106 @@ test("action click applies wildcard exclusions to subdomains only", { concurrenc
   assert.equal(calls.tabsUpdateCalls[0][0], 132);
 });
 
+test("runSuspendSweep applies site profile override to allow pinned tab suspension", { concurrency: false }, async () => {
+  setNowMinute(200);
+
+  const { events, calls, backgroundModule } = await importBackgroundWithMock({
+    storageSeed: {
+      [SETTINGS_STORAGE_KEY]: {
+        schemaVersion: 2,
+        settings: {
+          idleMinutes: 60,
+          excludedHosts: [],
+          skipPinned: true,
+          skipAudible: true,
+          siteProfiles: [
+            {
+              id: "allow-pinned",
+              hostRule: "example.com",
+              overrides: {
+                skipPinned: false
+              }
+            }
+          ]
+        }
+      }
+    },
+    queryResponder(queryInfo) {
+      if (queryInfo.active === true) {
+        return [];
+      }
+
+      if (isSweepCandidateQuery(queryInfo)) {
+        return [
+          {
+            id: 410,
+            windowId: 41,
+            active: false,
+            pinned: true,
+            audible: false,
+            url: "https://example.com/profile-pinned",
+            title: "Profile Pinned"
+          }
+        ];
+      }
+
+      return [];
+    }
+  });
+
+  await backgroundModule.__testing.waitForRuntimeReady();
+  backgroundModule.__testing.resetActivityState();
+  events.tabsOnActivated.dispatch({ tabId: 410, windowId: 41 });
+
+  setNowMinute(270);
+  await backgroundModule.__testing.runSuspendSweep(270);
+
+  assert.equal(calls.tabsUpdateCalls.length, 1);
+  assert.equal(calls.queryCalls.some((query) => query && query.active === false && query.pinned === false), false);
+});
+
+test("action click applies site profile excludeFromSuspend override", { concurrency: false }, async () => {
+  setNowMinute(210);
+
+  const { events, calls, backgroundModule } = await importBackgroundWithMock({
+    storageSeed: {
+      [SETTINGS_STORAGE_KEY]: {
+        schemaVersion: 2,
+        settings: {
+          idleMinutes: 60,
+          excludedHosts: [],
+          skipPinned: false,
+          skipAudible: false,
+          siteProfiles: [
+            {
+              id: "exclude-1",
+              hostRule: "example.com",
+              overrides: {
+                excludeFromSuspend: true
+              }
+            }
+          ]
+        }
+      }
+    }
+  });
+
+  await backgroundModule.__testing.waitForRuntimeReady();
+  backgroundModule.__testing.resetActivityState();
+
+  events.actionOnClicked.dispatch({
+    id: 510,
+    active: true,
+    pinned: false,
+    audible: false,
+    url: "https://example.com/do-not-suspend"
+  });
+
+  await flushAsyncWork();
+
+  assert.equal(calls.tabsUpdateCalls.length, 0);
+});
+
 test("action click skips URLs above the restorable max length", { concurrency: false }, async () => {
   setNowMinute(122);
 

@@ -1,3 +1,5 @@
+import type { SiteProfile, SiteProfileOverrides } from "./types.js";
+
 const WILDCARD_PREFIX = "*.";
 
 export type ExcludedHostNormalizationOptions = {
@@ -7,6 +9,16 @@ export type ExcludedHostNormalizationOptions = {
 
 export type ExcludedHostNormalizationResult = {
   normalizedHosts: string[];
+  ignoredInvalidCount: number;
+};
+
+export type SiteProfileNormalizationOptions = {
+  maxEntries?: number;
+  maxHostLength?: number;
+};
+
+export type SiteProfileNormalizationResult = {
+  normalizedProfiles: SiteProfile[];
   ignoredInvalidCount: number;
 };
 
@@ -34,6 +46,10 @@ function collectCandidateEntries(value: unknown): string[] | null {
   }
 
   return candidates;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function isValidHostnameLabel(label: string): boolean {
@@ -70,7 +86,7 @@ function isValidDnsHostname(hostname: string): boolean {
   return labels.every(isValidHostnameLabel);
 }
 
-function normalizeRule(entry: string, maxHostLength: number): string | null {
+function normalizeHostRule(entry: string, maxHostLength: number): string | null {
   const normalized = entry.trim().toLowerCase();
 
   if (normalized.length === 0 || normalized.length > maxHostLength) {
@@ -108,6 +124,52 @@ function normalizeRuntimeHostname(hostname: string): string | null {
   return isValidDnsHostname(normalized) ? normalized : null;
 }
 
+function normalizeSiteProfileOverrides(value: unknown): SiteProfileOverrides {
+  const overrides: SiteProfileOverrides = {};
+
+  if (!isRecord(value)) {
+    return overrides;
+  }
+
+  if (typeof value.idleMinutes === "number" && Number.isInteger(value.idleMinutes) && value.idleMinutes > 0) {
+    overrides.idleMinutes = value.idleMinutes;
+  }
+
+  if (typeof value.skipPinned === "boolean") {
+    overrides.skipPinned = value.skipPinned;
+  }
+
+  if (typeof value.skipAudible === "boolean") {
+    overrides.skipAudible = value.skipAudible;
+  }
+
+  if (typeof value.excludeFromSuspend === "boolean") {
+    overrides.excludeFromSuspend = value.excludeFromSuspend;
+  }
+
+  return overrides;
+}
+
+function isValidProfileId(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function getHostRuleTargetLength(hostRule: string): number {
+  return hostRule.startsWith(WILDCARD_PREFIX) ? hostRule.length - WILDCARD_PREFIX.length : hostRule.length;
+}
+
+function isWildcardRule(hostRule: string): boolean {
+  return hostRule.startsWith(WILDCARD_PREFIX);
+}
+
+export function normalizeSiteProfileHostRule(value: unknown, maxHostLength = Number.POSITIVE_INFINITY): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  return normalizeHostRule(value, maxHostLength);
+}
+
 export function normalizeExcludedHostEntries(
   value: unknown,
   options: ExcludedHostNormalizationOptions = {}
@@ -128,7 +190,7 @@ export function normalizeExcludedHostEntries(
   let ignoredInvalidCount = 0;
 
   for (const candidate of candidates) {
-    const normalizedRule = normalizeRule(candidate, maxHostLength);
+    const normalizedRule = normalizeHostRule(candidate, maxHostLength);
 
     if (!normalizedRule) {
       if (candidate.trim().length > 0) {
@@ -152,6 +214,50 @@ export function normalizeExcludedHostEntries(
 
   return {
     normalizedHosts,
+    ignoredInvalidCount
+  };
+}
+
+export function normalizeSiteProfiles(
+  value: unknown,
+  options: SiteProfileNormalizationOptions = {}
+): SiteProfileNormalizationResult {
+  if (!Array.isArray(value)) {
+    return {
+      normalizedProfiles: [],
+      ignoredInvalidCount: 0
+    };
+  }
+
+  const maxEntries = options.maxEntries ?? Number.POSITIVE_INFINITY;
+  const maxHostLength = options.maxHostLength ?? Number.POSITIVE_INFINITY;
+  const normalizedProfiles: SiteProfile[] = [];
+  let ignoredInvalidCount = 0;
+
+  for (const rawEntry of value) {
+    if (!isRecord(rawEntry)) {
+      ignoredInvalidCount += 1;
+      continue;
+    }
+
+    const id = isValidProfileId(rawEntry.id) ? rawEntry.id.trim() : null;
+    const hostRule = normalizeSiteProfileHostRule(rawEntry.hostRule, maxHostLength);
+
+    if (!id || !hostRule) {
+      ignoredInvalidCount += 1;
+      continue;
+    }
+
+    const overrides = normalizeSiteProfileOverrides(rawEntry.overrides);
+    normalizedProfiles.push({ id, hostRule, overrides });
+
+    if (normalizedProfiles.length >= maxEntries) {
+      break;
+    }
+  }
+
+  return {
+    normalizedProfiles,
     ignoredInvalidCount
   };
 }
@@ -197,4 +303,60 @@ export function isExcludedUrlByHost(url: string | null | undefined, excludedHost
   } catch {
     return false;
   }
+}
+
+export function findMatchingSiteProfile(hostname: string, siteProfiles: SiteProfile[]): SiteProfile | null {
+  const normalizedHost = normalizeRuntimeHostname(hostname);
+
+  if (!normalizedHost || siteProfiles.length === 0) {
+    return null;
+  }
+
+  let bestIndex = -1;
+  let bestProfile: SiteProfile | null = null;
+
+  for (let index = 0; index < siteProfiles.length; index += 1) {
+    const profile = siteProfiles[index];
+
+    if (!matchesExcludedHost(normalizedHost, [profile.hostRule])) {
+      continue;
+    }
+
+    if (!bestProfile) {
+      bestProfile = profile;
+      bestIndex = index;
+      continue;
+    }
+
+    const bestIsWildcard = isWildcardRule(bestProfile.hostRule);
+    const candidateIsWildcard = isWildcardRule(profile.hostRule);
+
+    if (bestIsWildcard !== candidateIsWildcard) {
+      if (!candidateIsWildcard) {
+        bestProfile = profile;
+        bestIndex = index;
+      }
+      continue;
+    }
+
+    const bestTargetLength = getHostRuleTargetLength(bestProfile.hostRule);
+    const candidateTargetLength = getHostRuleTargetLength(profile.hostRule);
+
+    if (candidateTargetLength > bestTargetLength) {
+      bestProfile = profile;
+      bestIndex = index;
+      continue;
+    }
+
+    if (candidateTargetLength < bestTargetLength) {
+      continue;
+    }
+
+    if (index < bestIndex) {
+      bestProfile = profile;
+      bestIndex = index;
+    }
+  }
+
+  return bestProfile;
 }

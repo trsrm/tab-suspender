@@ -1,87 +1,98 @@
 # Plan 26 - Per-Site Policy Profiles
 
 ## Status
-Draft
+Implemented
 
 ## Goal
-Allow domain-scoped policy overrides so users can tune suspend behavior for specific sites without changing global defaults.
+Allow host-scoped policy overrides so users can tune suspend behavior for specific domains without changing global defaults.
 
 ## Scope
-- Introduce per-site profiles with deterministic precedence over global settings for matching hosts.
-- Support exact-host and wildcard-subdomain host targets, aligned with existing exclusion semantics.
-- Include profile create/edit/delete UI in Options.
+- Add per-site profiles with deterministic match precedence over global settings for matching hosts.
+- Keep host syntax aligned with existing exclusion semantics (`example.com`, `*.example.com` subdomain-only wildcard).
+- Add Options UI CRUD for profiles.
+- Resolve effective policy settings per tab before policy evaluation.
 
 ## Non-goals
 - No regex host matching.
-- No remote profile sync.
-- No removal of existing global exclusions.
-
-## User Value
-- Lets users keep default suspend behavior while protecting critical workflows on specific domains.
-- Reduces friction from one-size-fits-all timeout and pin/audible behavior.
-
-## Proposed UX/API/Data Model Changes
-- UX:
-  - Add `Site Profiles` section in Options with host matcher, override controls, and conflict status.
-- API/runtime:
-  - Add resolved effective-settings computation per tab URL before policy evaluation.
-- Data model/storage (anticipated):
-  - New versioned `siteProfiles` envelope:
-    - `profiles: SiteProfile[]`
-    - each profile contains normalized host rule and optional overrides (`idleMinutes`, `skipPinned`, `skipAudible`, `excludeFromSuspend`).
-- Types/interfaces (anticipated):
-  - Add `SiteProfile`, `ResolvedPolicySettings`, and profile-matching helpers.
-- Manifest (anticipated):
-  - No new permissions required.
-
-## Risks and Failure Modes
-- Conflicting profiles may produce non-obvious outcomes.
-- Profile matching order ambiguity can create regression risk.
-- Large profile lists can increase sweep-time matching cost.
+- No remote sync.
+- No new extension permissions.
+- No policy precedence order changes in `evaluateSuspendDecision`.
 
 ## Implementation Steps
-1. Define profile schema and deterministic conflict resolution order.
-2. Implement normalization/validation and storage sanitation.
-3. Add options UI for profile management with clear precedence messaging.
-4. Integrate effective-settings resolution into background policy path.
-5. Add tests for match precedence, override application, and invalid profile handling.
+1. Extended shared types with `SiteProfile`, `SiteProfileOverrides`, `ResolvedPolicySettings`, and `Settings.siteProfiles`.
+2. Upgraded settings envelope schema to v2 (`schemaVersion: 2`) with decode-time v1 migration and sanitization.
+3. Added matcher helpers for profile host normalization and deterministic profile resolution precedence:
+   - exact host > wildcard
+   - longer host target > shorter
+   - earliest row as tie-break
+4. Integrated effective settings resolution into suspend runtime (`suspend-runner.ts`) for sweep and action-click paths, including `excludeFromSuspend` behavior.
+5. Updated sweep query pre-filtering to avoid pinned/audible filtering when site profiles exist, preventing false-negative candidates.
+6. Added Options `Site Profiles` section with add/delete/edit controls and save-time validation/sanitization.
+7. Extended tests for schema migration, profile normalization/matching precedence, runtime override behavior, and options CRUD/status messaging.
+8. Updated README, architecture notes, and roadmap tracking/decision log.
 
-## Files Expected to Change
+## Files Added/Changed
 - `extension/src/types.ts`
+- `extension/src/settings-store.ts`
 - `extension/src/matcher.ts`
-- `extension/src/policy.ts`
+- `extension/src/background/suspend-runner.ts`
 - `extension/src/background.ts`
 - `extension/src/options.ts`
 - `extension/options.html`
 - `tests/matcher.test.mjs`
+- `tests/settings-store.test.mjs`
 - `tests/policy-engine.test.mjs`
 - `tests/settings-ui.test.mjs`
 - `tests/suspend-action.test.mjs`
+- `tests/settings-runtime.test.mjs`
 - `README.md`
 - `docs/architecture.md`
 - `docs/plans/plan-26-per-site-policy-profiles.md`
 - `ROADMAP.md`
 
-## Test/Evidence Expectations
-- `npm run build`
-- `npm run typecheck`
-- `node --test tests/matcher.test.mjs tests/policy-engine.test.mjs tests/settings-ui.test.mjs tests/suspend-action.test.mjs`
-- `npm run test`
+## Tests/Evidence
+- Command: `npm run build`
+  - Result: passed.
+- Command: `npm run typecheck`
+  - Result: passed.
+- Command: `node --test tests/matcher.test.mjs tests/settings-store.test.mjs tests/policy-engine.test.mjs tests/settings-ui.test.mjs tests/suspend-action.test.mjs`
+  - Result: passed (67 tests, 0 failures).
+- Command: `npm run test`
+  - Result: passed (112 tests, 0 failures).
 
 ## Exit Criteria
-- Per-site profile CRUD is available in Options.
-- Effective policy resolution is deterministic and tested for conflicts.
-- Existing global settings still function when no profile matches.
+- Per-site profile CRUD is available in Options and persisted in settings schema v2.
+- Effective per-tab policy resolution is deterministic and test-covered.
+- Existing global behavior remains unchanged when no profile matches.
+- Required build/typecheck/targeted/full test gates pass.
 
 ## Rollback
-- Revert only Plan 26 files and rerun full tests.
+- Revert Plan 26 changes in:
+  - `extension/src/types.ts`
+  - `extension/src/settings-store.ts`
+  - `extension/src/matcher.ts`
+  - `extension/src/background/suspend-runner.ts`
+  - `extension/src/background.ts`
+  - `extension/src/options.ts`
+  - `extension/options.html`
+  - `tests/matcher.test.mjs`
+  - `tests/settings-store.test.mjs`
+  - `tests/policy-engine.test.mjs`
+  - `tests/settings-ui.test.mjs`
+  - `tests/suspend-action.test.mjs`
+  - `tests/settings-runtime.test.mjs`
+  - `README.md`
+  - `docs/architecture.md`
+  - `docs/plans/plan-26-per-site-policy-profiles.md`
+  - `ROADMAP.md`
+- Re-run `npm run test` to confirm baseline.
 
-## Dependencies / Cross-Plan References
-- Shares host normalization rules with Plan 7 domain exclusions.
-- Should coordinate with Plan 30 to expose profile-derived skip reasons.
+## Decisions
+- Settings storage schema is now v2 with decode-time migration from v1.
+- Profile precedence is fixed to exact > wildcard > longer target > earliest row.
+- `excludeFromSuspend` is enforced via policy input `excludedHost` flag for matched profiles.
+- Runtime keeps O(n) profile matching per tab with bounded profile count (`<= 200`).
 
-## Scoring
-- Impact: 5
-- Effort: 4
-- Confidence: 4
-- Priority Score: 16
+## Retrospective
+- What changed: host-specific overrides are now first-class settings with deterministic runtime behavior and options management.
+- Risks left: with high profile counts, per-tab linear matching remains acceptable but may need indexing if future limits increase.

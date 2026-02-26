@@ -191,7 +191,8 @@ test("storage.onChanged wins over stale hydration when updates interleave", { co
     idleMinutes: 60,
     excludedHosts: [],
     skipPinned: false,
-    skipAudible: true
+    skipAudible: true,
+    siteProfiles: []
   });
 });
 
@@ -201,7 +202,7 @@ test("invalid stored payload falls back to default settings", { concurrency: fal
   const { backgroundModule } = await importBackgroundWithMock({
     storageSeed: {
       [SETTINGS_STORAGE_KEY]: {
-        schemaVersion: 2,
+        schemaVersion: 99,
         settings: {
           idleMinutes: 5,
           excludedHosts: ["example.com"],
@@ -218,7 +219,8 @@ test("invalid stored payload falls back to default settings", { concurrency: fal
     idleMinutes: 1440,
     excludedHosts: [],
     skipPinned: true,
-    skipAudible: true
+    skipAudible: true,
+    siteProfiles: []
   });
 });
 

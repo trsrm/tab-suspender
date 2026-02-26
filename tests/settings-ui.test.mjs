@@ -119,7 +119,9 @@ function createDom() {
     skipPinned: createInput({ checked: false }),
     skipAudible: createInput({ checked: false }),
     excludedHosts: createInput(),
-    saveButton: createElement(),
+    siteProfiles: createNode("ul"),
+    addSiteProfileButton: createNode("button"),
+    saveButton: createNode("button"),
     status: createElement({ textContent: "Loading settings..." }),
     recoveryEmpty: createElement({ textContent: "Loading recently suspended tabs..." }),
     recoveryStatus: createElement({ textContent: "" }),
@@ -282,12 +284,13 @@ test("save writes versioned sanitized settings payload", { concurrency: false },
 
   assert.equal(storageSetCalls.length, 1);
   assert.deepEqual(storageData[SETTINGS_STORAGE_KEY], {
-    schemaVersion: 1,
+    schemaVersion: 2,
     settings: {
       idleMinutes: 1800,
       excludedHosts: ["example.com", "foo.com", "bar.com"],
       skipPinned: false,
-      skipAudible: false
+      skipAudible: false,
+      siteProfiles: []
     }
   });
   assert.equal(elements.status.textContent, "Settings saved.");
@@ -305,15 +308,97 @@ test("save ignores invalid excluded host entries with non-blocking status", { co
   await flushAsyncWork();
 
   assert.deepEqual(storageData[SETTINGS_STORAGE_KEY], {
-    schemaVersion: 1,
+    schemaVersion: 2,
     settings: {
       idleMinutes: 2700,
       excludedHosts: ["example.com", "*.news.example.com"],
       skipPinned: true,
-      skipAudible: true
+      skipAudible: true,
+      siteProfiles: []
     }
   });
   assert.equal(elements.status.textContent, "Settings saved. Ignored 3 invalid excluded host entries.");
+});
+
+test("options page renders and saves site profiles", { concurrency: false }, async () => {
+  const { elements, storageData } = await importOptionsWithMocks({
+    storageSeed: {
+      [SETTINGS_STORAGE_KEY]: {
+        schemaVersion: 2,
+        settings: {
+          idleMinutes: 4320,
+          excludedHosts: [],
+          skipPinned: true,
+          skipAudible: true,
+          siteProfiles: [
+            {
+              id: "site-1",
+              hostRule: "example.com",
+              overrides: {
+                idleMinutes: 120,
+                skipPinned: false,
+                skipAudible: true,
+                excludeFromSuspend: true
+              }
+            }
+          ]
+        }
+      }
+    }
+  });
+
+  assert.equal(elements.siteProfiles.children.length, 1);
+
+  elements.addSiteProfileButton.click();
+  assert.equal(elements.siteProfiles.children.length, 2);
+
+  const secondRow = elements.siteProfiles.children[1];
+  const grid = secondRow.children[0];
+  const hostField = grid.children[0];
+  const idleField = grid.children[1];
+  hostField.children[1].value = "api.example.com";
+  idleField.children[1].value = "6";
+  const toggles = secondRow.children[1];
+  toggles.children[0].children[0].checked = true;
+  toggles.children[1].children[0].checked = false;
+  toggles.children[2].children[0].checked = false;
+
+  elements.settingsForm.submit();
+  await flushAsyncWork();
+  await flushAsyncWork();
+
+  assert.equal(storageData[SETTINGS_STORAGE_KEY].schemaVersion, 2);
+  assert.equal(storageData[SETTINGS_STORAGE_KEY].settings.siteProfiles.length, 2);
+  assert.deepEqual(storageData[SETTINGS_STORAGE_KEY].settings.siteProfiles[0], {
+    id: "site-1",
+    hostRule: "example.com",
+    overrides: {
+      idleMinutes: 120,
+      skipPinned: false,
+      skipAudible: true,
+      excludeFromSuspend: true
+    }
+  });
+  assert.equal(storageData[SETTINGS_STORAGE_KEY].settings.siteProfiles[1].hostRule, "api.example.com");
+  assert.equal(storageData[SETTINGS_STORAGE_KEY].settings.siteProfiles[1].overrides.idleMinutes, 360);
+});
+
+test("invalid site profile rows are ignored with status messaging", { concurrency: false }, async () => {
+  const { elements } = await importOptionsWithMocks();
+
+  elements.addSiteProfileButton.click();
+  const row = elements.siteProfiles.children[0];
+  const grid = row.children[0];
+  const hostField = grid.children[0];
+  const idleField = grid.children[1];
+  hostField.children[1].value = "bad host";
+  idleField.children[1].value = "900";
+
+  elements.settingsForm.submit();
+  await flushAsyncWork();
+  await flushAsyncWork();
+
+  assert.equal(elements.status.textContent, "Settings saved. Ignored 1 invalid site profile entry.");
 });
 
 test("invalid idle hours blocks save and shows field error", { concurrency: false }, async () => {

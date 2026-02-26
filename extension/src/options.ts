@@ -3,12 +3,14 @@ import {
   MAX_IDLE_HOURS,
   MAX_EXCLUDED_HOST_LENGTH,
   MAX_EXCLUDED_HOSTS,
+  MAX_SITE_PROFILES,
+  MAX_SITE_PROFILE_HOST_LENGTH,
   MIN_IDLE_HOURS,
   loadSettingsFromStorage,
   saveSettingsToStorage
 } from "./settings-store.js";
-import { normalizeExcludedHostEntries } from "./matcher.js";
-import type { Settings } from "./types.js";
+import { normalizeExcludedHostEntries, normalizeSiteProfileHostRule } from "./matcher.js";
+import type { Settings, SiteProfile } from "./types.js";
 import { loadRecoveryFromStorage } from "./recovery-store.js";
 import { formatCapturedAtMinuteUtc } from "./time-format.js";
 import { validateRestorableUrl } from "./url-safety.js";
@@ -16,6 +18,8 @@ import { validateRestorableUrl } from "./url-safety.js";
 export {};
 
 const RECOVERY_DEFAULT_TITLE = "Untitled tab";
+let siteProfileIdCounter = 0;
+
 const optionsMessages = {
   settingsStatus: {
     loading: "Loading settings...",
@@ -38,6 +42,14 @@ const optionsMessages = {
     reopenButton: "Reopen",
     invalidRestoreUrlTitle: "URL is no longer eligible for restore."
   },
+  siteProfiles: {
+    hostLabel: "Host rule",
+    idleHoursLabel: "Idle override (hours)",
+    skipPinnedLabel: "Skip pinned",
+    skipAudibleLabel: "Skip audible",
+    excludeFromSuspendLabel: "Exclude from suspend",
+    deleteButton: "Delete"
+  },
   validation: {
     idleHoursOutOfRange: `Enter a whole number from ${MIN_IDLE_HOURS} to ${MAX_IDLE_HOURS}.`
   }
@@ -50,12 +62,27 @@ type OptionsElements = {
   skipPinnedInput: HTMLInputElement;
   skipAudibleInput: HTMLInputElement;
   excludedHostsInput: HTMLTextAreaElement;
+  siteProfilesList: HTMLElement;
+  addSiteProfileButton: HTMLButtonElement;
   saveButton: HTMLButtonElement;
   settingsStatusEl: HTMLElement;
   recoveryStatusEl: HTMLElement;
   recoveryList: HTMLElement;
   recoveryEmpty: HTMLElement;
 };
+
+type SiteProfileRowElements = {
+  id: string;
+  root: HTMLElement;
+  hostRuleInput: HTMLInputElement;
+  idleHoursInput: HTMLInputElement;
+  skipPinnedInput: HTMLInputElement;
+  skipAudibleInput: HTMLInputElement;
+  excludeFromSuspendInput: HTMLInputElement;
+  deleteButton: HTMLButtonElement;
+};
+
+const siteProfileRowsByList = new WeakMap<HTMLElement, SiteProfileRowElements[]>();
 
 function getOptionsElements(): OptionsElements | null {
   const form = document.getElementById("settingsForm");
@@ -64,6 +91,8 @@ function getOptionsElements(): OptionsElements | null {
   const skipPinnedInput = document.getElementById("skipPinned");
   const skipAudibleInput = document.getElementById("skipAudible");
   const excludedHostsInput = document.getElementById("excludedHosts");
+  const siteProfilesList = document.getElementById("siteProfiles");
+  const addSiteProfileButton = document.getElementById("addSiteProfileButton");
   const saveButton = document.getElementById("saveButton");
   const settingsStatusEl = document.getElementById("status");
   const recoveryStatusEl = document.getElementById("recoveryStatus");
@@ -77,6 +106,8 @@ function getOptionsElements(): OptionsElements | null {
     !skipPinnedInput ||
     !skipAudibleInput ||
     !excludedHostsInput ||
+    !siteProfilesList ||
+    !addSiteProfileButton ||
     !saveButton ||
     !settingsStatusEl ||
     !recoveryStatusEl ||
@@ -93,6 +124,8 @@ function getOptionsElements(): OptionsElements | null {
     skipPinnedInput: skipPinnedInput as HTMLInputElement,
     skipAudibleInput: skipAudibleInput as HTMLInputElement,
     excludedHostsInput: excludedHostsInput as HTMLTextAreaElement,
+    siteProfilesList: siteProfilesList as HTMLElement,
+    addSiteProfileButton: addSiteProfileButton as HTMLButtonElement,
     saveButton: saveButton as HTMLButtonElement,
     settingsStatusEl: settingsStatusEl as HTMLElement,
     recoveryStatusEl: recoveryStatusEl as HTMLElement,
@@ -114,7 +147,18 @@ function setBusy(elements: OptionsElements, busy: boolean): void {
   elements.skipPinnedInput.disabled = busy;
   elements.skipAudibleInput.disabled = busy;
   elements.excludedHostsInput.disabled = busy;
+  elements.addSiteProfileButton.disabled = busy;
   elements.saveButton.disabled = busy;
+
+  const rows = siteProfileRowsByList.get(elements.siteProfilesList) ?? [];
+  for (const row of rows) {
+    row.hostRuleInput.disabled = busy;
+    row.idleHoursInput.disabled = busy;
+    row.skipPinnedInput.disabled = busy;
+    row.skipAudibleInput.disabled = busy;
+    row.excludeFromSuspendInput.disabled = busy;
+    row.deleteButton.disabled = busy;
+  }
 }
 
 function clearIdleHoursError(elements: OptionsElements): void {
@@ -129,9 +173,27 @@ function setIdleHoursError(elements: OptionsElements, message: string): void {
   elements.idleHoursInput.setAttribute("aria-invalid", "true");
 }
 
-function getSavedWithIgnoredEntriesMessage(ignoredInvalidCount: number): string {
-  const suffix = ignoredInvalidCount === 1 ? "entry" : "entries";
-  return `Settings saved. Ignored ${ignoredInvalidCount} invalid excluded host ${suffix}.`;
+function getSavedWithIgnoredEntriesMessage(
+  ignoredInvalidExcludedHostCount: number,
+  ignoredInvalidSiteProfileCount: number
+): string {
+  const parts: string[] = [];
+
+  if (ignoredInvalidExcludedHostCount > 0) {
+    const excludedSuffix = ignoredInvalidExcludedHostCount === 1 ? "entry" : "entries";
+    parts.push(`Ignored ${ignoredInvalidExcludedHostCount} invalid excluded host ${excludedSuffix}`);
+  }
+
+  if (ignoredInvalidSiteProfileCount > 0) {
+    const profileSuffix = ignoredInvalidSiteProfileCount === 1 ? "entry" : "entries";
+    parts.push(`Ignored ${ignoredInvalidSiteProfileCount} invalid site profile ${profileSuffix}`);
+  }
+
+  if (parts.length === 0) {
+    return optionsMessages.settingsStatus.saved;
+  }
+
+  return `Settings saved. ${parts.join(". ")}.`;
 }
 
 function parseIdleHours(rawValue: string): number | null {
@@ -154,11 +216,183 @@ function parseIdleHours(rawValue: string): number | null {
   return parsed;
 }
 
+function generateSiteProfileId(): string {
+  siteProfileIdCounter += 1;
+  return `sp-${Date.now().toString(36)}-${siteProfileIdCounter.toString(36)}`;
+}
+
+function removeSiteProfileRow(list: HTMLElement, rowId: string): void {
+  const rows = siteProfileRowsByList.get(list) ?? [];
+  const nextRows = rows.filter((row) => row.id !== rowId);
+  siteProfileRowsByList.set(list, nextRows);
+
+  const remainingNodes = nextRows.map((row) => row.root);
+  list.replaceChildren(...remainingNodes);
+}
+
+function createLabeledInput(labelText: string, input: HTMLInputElement): HTMLElement {
+  const field = document.createElement("div");
+  field.className = "field";
+
+  const label = document.createElement("label");
+  label.textContent = labelText;
+  field.appendChild(label);
+  field.appendChild(input);
+
+  return field;
+}
+
+function createCheckbox(labelText: string, input: HTMLInputElement): HTMLElement {
+  const label = document.createElement("label");
+  label.className = "checkbox";
+  label.appendChild(input);
+  const text = document.createElement("span");
+  text.textContent = labelText;
+  label.appendChild(text);
+  return label;
+}
+
+function createSiteProfileRow(list: HTMLElement, profile?: SiteProfile): SiteProfileRowElements {
+  const row = document.createElement("li");
+  row.className = "site-profile-item";
+
+  const hostRuleInput = document.createElement("input");
+  hostRuleInput.type = "text";
+  hostRuleInput.value = profile?.hostRule ?? "";
+
+  const idleHoursInput = document.createElement("input");
+  idleHoursInput.type = "number";
+  idleHoursInput.min = String(MIN_IDLE_HOURS);
+  idleHoursInput.max = String(MAX_IDLE_HOURS);
+  idleHoursInput.inputMode = "numeric";
+  idleHoursInput.value =
+    typeof profile?.overrides.idleMinutes === "number"
+      ? String(Math.max(MIN_IDLE_HOURS, Math.floor(profile.overrides.idleMinutes / 60)))
+      : "";
+
+  const grid = document.createElement("div");
+  grid.className = "site-profile-grid";
+  grid.appendChild(createLabeledInput(optionsMessages.siteProfiles.hostLabel, hostRuleInput));
+  grid.appendChild(createLabeledInput(optionsMessages.siteProfiles.idleHoursLabel, idleHoursInput));
+
+  const skipPinnedInput = document.createElement("input");
+  skipPinnedInput.type = "checkbox";
+  skipPinnedInput.checked = profile?.overrides.skipPinned ?? false;
+
+  const skipAudibleInput = document.createElement("input");
+  skipAudibleInput.type = "checkbox";
+  skipAudibleInput.checked = profile?.overrides.skipAudible ?? false;
+
+  const excludeFromSuspendInput = document.createElement("input");
+  excludeFromSuspendInput.type = "checkbox";
+  excludeFromSuspendInput.checked = profile?.overrides.excludeFromSuspend ?? false;
+
+  const toggles = document.createElement("div");
+  toggles.className = "field";
+  toggles.appendChild(createCheckbox(optionsMessages.siteProfiles.skipPinnedLabel, skipPinnedInput));
+  toggles.appendChild(createCheckbox(optionsMessages.siteProfiles.skipAudibleLabel, skipAudibleInput));
+  toggles.appendChild(createCheckbox(optionsMessages.siteProfiles.excludeFromSuspendLabel, excludeFromSuspendInput));
+
+  const actions = document.createElement("div");
+  actions.className = "site-profile-actions";
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "site-profile-delete";
+  deleteButton.textContent = optionsMessages.siteProfiles.deleteButton;
+  actions.appendChild(deleteButton);
+
+  row.appendChild(grid);
+  row.appendChild(toggles);
+  row.appendChild(actions);
+
+  const rowElements: SiteProfileRowElements = {
+    id: profile?.id ?? generateSiteProfileId(),
+    root: row,
+    hostRuleInput,
+    idleHoursInput,
+    skipPinnedInput,
+    skipAudibleInput,
+    excludeFromSuspendInput,
+    deleteButton
+  };
+
+  deleteButton.addEventListener("click", () => {
+    removeSiteProfileRow(list, rowElements.id);
+  });
+
+  return rowElements;
+}
+
+function renderSiteProfiles(list: HTMLElement, profiles: SiteProfile[]): void {
+  const rows = profiles.slice(0, MAX_SITE_PROFILES).map((profile) => createSiteProfileRow(list, profile));
+  siteProfileRowsByList.set(list, rows);
+  list.replaceChildren(...rows.map((row) => row.root));
+}
+
+function appendNewSiteProfileRow(list: HTMLElement): void {
+  const rows = siteProfileRowsByList.get(list) ?? [];
+
+  if (rows.length >= MAX_SITE_PROFILES) {
+    return;
+  }
+
+  const next = [...rows, createSiteProfileRow(list)];
+  siteProfileRowsByList.set(list, next);
+  list.replaceChildren(...next.map((row) => row.root));
+}
+
+function readSiteProfilesFromInputs(list: HTMLElement): {
+  profiles: SiteProfile[];
+  ignoredInvalidCount: number;
+} {
+  const rows = siteProfileRowsByList.get(list) ?? [];
+  const profiles: SiteProfile[] = [];
+  let ignoredInvalidCount = 0;
+
+  for (const row of rows) {
+    const normalizedHostRule = normalizeSiteProfileHostRule(row.hostRuleInput.value, MAX_SITE_PROFILE_HOST_LENGTH);
+
+    if (!normalizedHostRule) {
+      ignoredInvalidCount += 1;
+      continue;
+    }
+
+    const idleHoursRaw = row.idleHoursInput.value.trim();
+    const parsedIdleHours = idleHoursRaw.length > 0 ? parseIdleHours(idleHoursRaw) : null;
+
+    if (idleHoursRaw.length > 0 && parsedIdleHours === null) {
+      ignoredInvalidCount += 1;
+      continue;
+    }
+
+    profiles.push({
+      id: row.id,
+      hostRule: normalizedHostRule,
+      overrides: {
+        idleMinutes: parsedIdleHours === null ? undefined : parsedIdleHours * 60,
+        skipPinned: row.skipPinnedInput.checked,
+        skipAudible: row.skipAudibleInput.checked,
+        excludeFromSuspend: row.excludeFromSuspendInput.checked
+      }
+    });
+
+    if (profiles.length >= MAX_SITE_PROFILES) {
+      break;
+    }
+  }
+
+  return {
+    profiles,
+    ignoredInvalidCount
+  };
+}
+
 function renderSettings(elements: OptionsElements, settings: Settings): void {
   elements.idleHoursInput.value = String(Math.max(MIN_IDLE_HOURS, Math.floor(settings.idleMinutes / 60)));
   elements.skipPinnedInput.checked = settings.skipPinned;
   elements.skipAudibleInput.checked = settings.skipAudible;
   elements.excludedHostsInput.value = settings.excludedHosts.join("\n");
+  renderSiteProfiles(elements.siteProfilesList, settings.siteProfiles);
 }
 
 type RecoveryItem = {
@@ -363,21 +597,25 @@ async function handleSave(elements: OptionsElements): Promise<void> {
     maxEntries: MAX_EXCLUDED_HOSTS,
     maxHostLength: MAX_EXCLUDED_HOST_LENGTH
   });
+  const normalizedSiteProfiles = readSiteProfilesFromInputs(elements.siteProfilesList);
 
   try {
     const persisted = await saveSettingsToStorage({
       idleMinutes: parsedIdleHours * 60,
       skipPinned: elements.skipPinnedInput.checked,
       skipAudible: elements.skipAudibleInput.checked,
-      excludedHosts: normalizedExcludedHosts.normalizedHosts
+      excludedHosts: normalizedExcludedHosts.normalizedHosts,
+      siteProfiles: normalizedSiteProfiles.profiles
     });
 
     renderSettings(elements, persisted.settings);
-    if (normalizedExcludedHosts.ignoredInvalidCount > 0) {
-      setSettingsStatus(elements, getSavedWithIgnoredEntriesMessage(normalizedExcludedHosts.ignoredInvalidCount));
-    } else {
-      setSettingsStatus(elements, optionsMessages.settingsStatus.saved);
-    }
+    setSettingsStatus(
+      elements,
+      getSavedWithIgnoredEntriesMessage(
+        normalizedExcludedHosts.ignoredInvalidCount,
+        normalizedSiteProfiles.ignoredInvalidCount
+      )
+    );
   } catch {
     setSettingsStatus(elements, optionsMessages.settingsStatus.saveFailed);
   } finally {
@@ -392,6 +630,12 @@ function wireFormSubmission(elements: OptionsElements): void {
   });
 }
 
+function wireSiteProfileActions(elements: OptionsElements): void {
+  elements.addSiteProfileButton.addEventListener("click", () => {
+    appendNewSiteProfileRow(elements.siteProfilesList);
+  });
+}
+
 async function initializeOptionsPage(): Promise<void> {
   const elements = getOptionsElements();
 
@@ -400,6 +644,7 @@ async function initializeOptionsPage(): Promise<void> {
   }
 
   wireFormSubmission(elements);
+  wireSiteProfileActions(elements);
   await Promise.all([loadAndRenderSettings(elements), loadAndRenderRecovery(elements)]);
 }
 

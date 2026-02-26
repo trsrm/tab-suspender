@@ -2,7 +2,14 @@
 
 All notable user-facing changes are documented in this file.
 
-Current release: **1.1.8**
+Current release: **1.2.0**
+
+## [1.2.0] - 2026-02-26
+- Added per-site policy profiles so specific domains can override global suspend behavior.
+- Added deterministic profile match precedence: exact host before wildcard, then longer host target, then earliest row.
+- Added profile override controls in Settings for idle timeout, pinned/audible skip behavior, and per-site exclude-from-suspend.
+- Upgraded settings storage to schema v2 with decode-time migration from existing schema v1 data.
+- Expanded regression coverage for profile matching, schema migration/sanitization, options profile CRUD, and suspend runtime integration.
 
 ## [1.1.8] - 2026-02-26
 - Hardened background listener payload handling with shared typed guards to reduce event-contract drift risk without changing suspend behavior.

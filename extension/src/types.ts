@@ -1,15 +1,39 @@
+export interface SiteProfileOverrides {
+  idleMinutes?: number;
+  skipPinned?: boolean;
+  skipAudible?: boolean;
+  excludeFromSuspend?: boolean;
+}
+
+export interface SiteProfile {
+  id: string;
+  hostRule: string;
+  overrides: SiteProfileOverrides;
+}
+
 export interface Settings {
   idleMinutes: number;
   excludedHosts: string[];
   skipPinned: boolean;
   skipAudible: boolean;
+  siteProfiles: SiteProfile[];
 }
 
-export type SettingsSchemaVersion = 1;
+export type SettingsSchemaVersion = 1 | 2;
 
 export interface StoredSettingsV1 {
-  schemaVersion: SettingsSchemaVersion;
+  schemaVersion: 1;
+  settings: Omit<Settings, "siteProfiles">;
+}
+
+export interface StoredSettingsV2 {
+  schemaVersion: 2;
   settings: Settings;
+}
+
+export interface ResolvedPolicySettings {
+  settings: Settings;
+  matchedProfileId: string | null;
 }
 
 export type ActivitySchemaVersion = 1;

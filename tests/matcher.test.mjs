@@ -2,9 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  findMatchingSiteProfile,
   isExcludedUrlByHost,
   matchesExcludedHost,
-  normalizeExcludedHostEntries
+  normalizeExcludedHostEntries,
+  normalizeSiteProfileHostRule,
+  normalizeSiteProfiles
 } from "../build/extension/matcher.js";
 
 test("normalizeExcludedHostEntries canonicalizes exact and wildcard rules", () => {
@@ -69,4 +72,63 @@ test("isExcludedUrlByHost returns false for invalid URL payloads", () => {
   assert.equal(isExcludedUrlByHost("not a url", ["example.com"]), false);
   assert.equal(isExcludedUrlByHost(undefined, ["example.com"]), false);
   assert.equal(isExcludedUrlByHost(null, ["example.com"]), false);
+});
+
+test("normalizeSiteProfileHostRule validates exact and wildcard rules", () => {
+  assert.equal(normalizeSiteProfileHostRule(" Example.com "), "example.com");
+  assert.equal(normalizeSiteProfileHostRule("*.Api.Example.com"), "*.api.example.com");
+  assert.equal(normalizeSiteProfileHostRule("https://example.com"), null);
+});
+
+test("normalizeSiteProfiles keeps valid rows and drops malformed rows", () => {
+  const result = normalizeSiteProfiles([
+    {
+      id: "p1",
+      hostRule: "Example.com",
+      overrides: {
+        idleMinutes: 120,
+        skipPinned: false,
+        skipAudible: true,
+        excludeFromSuspend: false
+      }
+    },
+    {
+      id: "",
+      hostRule: "bad host",
+      overrides: {
+        idleMinutes: -1
+      }
+    }
+  ]);
+
+  assert.deepEqual(result, {
+    normalizedProfiles: [
+      {
+        id: "p1",
+        hostRule: "example.com",
+        overrides: {
+          idleMinutes: 120,
+          skipPinned: false,
+          skipAudible: true,
+          excludeFromSuspend: false
+        }
+      }
+    ],
+    ignoredInvalidCount: 1
+  });
+});
+
+test("findMatchingSiteProfile precedence is exact > wildcard > longer target > earliest", () => {
+  const profiles = [
+    { id: "w1", hostRule: "*.example.com", overrides: {} },
+    { id: "w2", hostRule: "*.api.example.com", overrides: {} },
+    { id: "e1", hostRule: "api.example.com", overrides: {} },
+    { id: "w3", hostRule: "*.api.example.com", overrides: {} }
+  ];
+
+  const forApi = findMatchingSiteProfile("api.example.com", profiles);
+  const forSub = findMatchingSiteProfile("a.api.example.com", profiles);
+
+  assert.equal(forApi?.id, "e1");
+  assert.equal(forSub?.id, "w2");
 });

@@ -75,8 +75,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 22: Simplicity UX and maintenance opportunities ([details](docs/plans/plan-22-simplicity-ux-and-maintenance.md))
 - [x] Plan 23: Over-engineering reduction opportunities ([details](docs/plans/plan-23-over-engineering-reduction.md))
 - [x] Plan 24: Anti-pattern and code-health opportunities ([details](docs/plans/plan-24-anti-patterns-and-code-health.md))
-- [ ] Plan 26: (draft) Per-site policy profiles ([details](docs/plans/plan-26-per-site-policy-profiles.md))
-- [ ] Plan 27: (draft) Recovery center UX enhancements ([details](docs/plans/plan-27-recovery-center-ux-enhancements.md))
+- [x] Plan 26: Per-site policy profiles ([details](docs/plans/plan-26-per-site-policy-profiles.md))
 - [ ] Plan 28: (draft) Settings import/export ([details](docs/plans/plan-28-settings-import-export.md))
 - [ ] Plan 29: (draft) Manual suspend controls ([details](docs/plans/plan-29-manual-suspend-controls.md))
 - [ ] Plan 30: (draft) Suspension reason transparency ([details](docs/plans/plan-30-suspension-reason-transparency.md))
@@ -191,6 +190,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-031**: Background event payload validation now uses shared typed guards (`types.ts`), options-page status/copy ownership is centralized in a typed map, and storage sanitize/decode invariants are locked by dedicated module-level tests.
   - Alternatives: keep local ad hoc payload typing and rely on indirect integration coverage only.
   - Impact: lower contract drift risk and clearer maintainability boundaries without user-visible behavior changes.
+- **D-032**: Settings storage schema is upgraded to v2 with decode-time migration from v1 to support per-site policy profiles, and per-site match precedence is fixed to exact > wildcard, then longer host target, then earliest row.
+  - Alternatives: keep schema v1 with parallel profile key storage, or use list-order-first precedence.
+  - Impact: deterministic host-specific policy overrides without breaking existing persisted settings.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -222,3 +224,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-26: Completed Plan 22 simplicity UX/maintenance pass by splitting options settings vs recovery status channels, centralizing suspended-page message maps, and adding status-isolation regression coverage.
 - 2026-02-26: Completed Plan 23 over-engineering reduction by centralizing background runtime state in a typed envelope, replacing generic tab API indirection with focused wrappers, and formalizing the `__testing` contract.
 - 2026-02-26: Completed Plan 24 anti-pattern/code-health hardening with shared background payload guards, typed options message maps, and dedicated settings/activity/recovery store invariant tests.
+- 2026-02-26: Completed Plan 26 per-site policy profiles with schema v2 migration, deterministic host-profile precedence, runtime effective-settings resolution, options profile CRUD, and regression coverage.

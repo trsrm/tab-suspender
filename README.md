@@ -10,6 +10,7 @@ Tab Suspender reduces tab clutter and resource usage by replacing long-idle tabs
 - Manual suspend for the current tab from the toolbar action.
 - Safety guards that skip active, internal, and other protected tabs.
 - Per-site exclusions with exact host and wildcard subdomain support.
+- Per-site policy profiles with deterministic precedence and host-specific overrides.
 - Safe restore flow with URL validation before navigation.
 - Recently suspended recovery list in Options for one-click reopen.
 - Legacy suspended extension-page URLs remain compatible while the extension is enabled.
@@ -36,7 +37,7 @@ For full setup and troubleshooting steps, see [Safari Local Install Guide](docs/
 ## How to use
 1. Open extension options from Safari extension settings.
 2. Set your idle timeout and optional rules (for example pinned/audible behavior).
-3. Add excluded hosts as needed (`example.com` or `*.example.com`).
+3. Add excluded hosts and optional site profiles as needed (`example.com` or `*.example.com`).
 4. Use the toolbar action when you want to suspend the current tab immediately.
 5. On a suspended tab, use **Restore** to return to the original page (URL safety checks apply).
 6. If tabs disappear after extension reload/update, reopen from **Recently Suspended Tabs** in Options.

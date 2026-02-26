@@ -1,5 +1,9 @@
-import type { Settings, SettingsSchemaVersion, StoredSettingsV1 } from "./types.js";
-import { normalizeExcludedHostEntries } from "./matcher.js";
+import type {
+  Settings,
+  SettingsSchemaVersion,
+  StoredSettingsV2
+} from "./types.js";
+import { normalizeExcludedHostEntries, normalizeSiteProfiles } from "./matcher.js";
 import {
   getKeyWithCompatibility,
   resolveStorageArea,
@@ -8,19 +12,22 @@ import {
 } from "./storage-compat.js";
 
 export const SETTINGS_STORAGE_KEY = "settings";
-export const SETTINGS_SCHEMA_VERSION: SettingsSchemaVersion = 1;
+export const SETTINGS_SCHEMA_VERSION: SettingsSchemaVersion = 2;
 export const MIN_IDLE_HOURS = 1;
 export const MAX_IDLE_HOURS = 720;
 export const MIN_IDLE_MINUTES = MIN_IDLE_HOURS * 60;
 export const MAX_IDLE_MINUTES = MAX_IDLE_HOURS * 60;
 export const MAX_EXCLUDED_HOST_LENGTH = 253;
 export const MAX_EXCLUDED_HOSTS = 200;
+export const MAX_SITE_PROFILE_HOST_LENGTH = 253;
+export const MAX_SITE_PROFILES = 200;
 
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
   idleMinutes: 24 * 60,
   excludedHosts: [],
   skipPinned: true,
-  skipAudible: true
+  skipAudible: true,
+  siteProfiles: []
 });
 
 function cloneSettings(settings: Settings): Settings {
@@ -28,7 +35,14 @@ function cloneSettings(settings: Settings): Settings {
     idleMinutes: settings.idleMinutes,
     excludedHosts: [...settings.excludedHosts],
     skipPinned: settings.skipPinned,
-    skipAudible: settings.skipAudible
+    skipAudible: settings.skipAudible,
+    siteProfiles: settings.siteProfiles.map((profile) => ({
+      id: profile.id,
+      hostRule: profile.hostRule,
+      overrides: {
+        ...profile.overrides
+      }
+    }))
   };
 }
 
@@ -76,15 +90,51 @@ function sanitizeExcludedHosts(value: unknown, fallback: string[]): string[] {
   return normalized.normalizedHosts;
 }
 
-export function sanitizeSettings(value: unknown, fallback: Settings = DEFAULT_SETTINGS): Settings {
+function sanitizeSiteProfiles(value: unknown, fallback: Settings["siteProfiles"]): Settings["siteProfiles"] {
+  if (!Array.isArray(value)) {
+    return fallback.map((profile) => ({
+      id: profile.id,
+      hostRule: profile.hostRule,
+      overrides: {
+        ...profile.overrides
+      }
+    }));
+  }
+
+  const normalized = normalizeSiteProfiles(value, {
+    maxEntries: MAX_SITE_PROFILES,
+    maxHostLength: MAX_SITE_PROFILE_HOST_LENGTH
+  });
+
+  return normalized.normalizedProfiles;
+}
+
+function sanitizeSettingsV2(value: unknown, fallback: Settings = DEFAULT_SETTINGS): Settings {
   const source = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 
   return {
     idleMinutes: sanitizeIdleMinutes(source.idleMinutes, fallback.idleMinutes),
     excludedHosts: sanitizeExcludedHosts(source.excludedHosts, fallback.excludedHosts),
     skipPinned: sanitizeBoolean(source.skipPinned, fallback.skipPinned),
-    skipAudible: sanitizeBoolean(source.skipAudible, fallback.skipAudible)
+    skipAudible: sanitizeBoolean(source.skipAudible, fallback.skipAudible),
+    siteProfiles: sanitizeSiteProfiles(source.siteProfiles, fallback.siteProfiles)
   };
+}
+
+function sanitizeSettingsV1(value: unknown, fallback: Settings = DEFAULT_SETTINGS): Settings {
+  const source = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+
+  return {
+    idleMinutes: sanitizeIdleMinutes(source.idleMinutes, fallback.idleMinutes),
+    excludedHosts: sanitizeExcludedHosts(source.excludedHosts, fallback.excludedHosts),
+    skipPinned: sanitizeBoolean(source.skipPinned, fallback.skipPinned),
+    skipAudible: sanitizeBoolean(source.skipAudible, fallback.skipAudible),
+    siteProfiles: []
+  };
+}
+
+export function sanitizeSettings(value: unknown, fallback: Settings = DEFAULT_SETTINGS): Settings {
+  return sanitizeSettingsV2(value, fallback);
 }
 
 export function decodeStoredSettings(value: unknown): Settings {
@@ -94,12 +144,15 @@ export function decodeStoredSettings(value: unknown): Settings {
 
   const record = value as Record<string, unknown>;
 
-  if (record.schemaVersion !== SETTINGS_SCHEMA_VERSION) {
-    return cloneSettings(DEFAULT_SETTINGS);
+  if (record.schemaVersion === 2) {
+    return sanitizeSettingsV2(record.settings, DEFAULT_SETTINGS);
   }
 
-  // Invariant: decoded settings are always fully sanitized and within canonical bounds.
-  return sanitizeSettings(record.settings, DEFAULT_SETTINGS);
+  if (record.schemaVersion === 1) {
+    return sanitizeSettingsV1(record.settings, DEFAULT_SETTINGS);
+  }
+
+  return cloneSettings(DEFAULT_SETTINGS);
 }
 
 export async function loadSettingsFromStorage(storageArea?: StorageAreaLike | null): Promise<Settings> {
@@ -116,12 +169,12 @@ export async function loadSettingsFromStorage(storageArea?: StorageAreaLike | nu
 export async function saveSettingsToStorage(
   value: unknown,
   storageArea?: StorageAreaLike | null
-): Promise<StoredSettingsV1> {
+): Promise<StoredSettingsV2> {
   const resolvedStorageArea = resolveStorageArea(storageArea);
-  const sanitizedSettings = sanitizeSettings(value, DEFAULT_SETTINGS);
+  const sanitizedSettings = sanitizeSettingsV2(value, DEFAULT_SETTINGS);
 
-  const envelope: StoredSettingsV1 = {
-    schemaVersion: SETTINGS_SCHEMA_VERSION,
+  const envelope: StoredSettingsV2 = {
+    schemaVersion: 2,
     settings: sanitizedSettings
   };
 

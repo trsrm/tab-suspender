@@ -23,7 +23,7 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 - `extension/src/storage-compat.ts`
   - Shared callback/promise storage API adapter with unified `runtime.lastError` handling.
 - `extension/src/matcher.ts`
-  - Host exclusion normalization and exact/wildcard hostname matching.
+  - Host exclusion/profile normalization and exact/wildcard hostname matching with deterministic profile precedence.
 - `extension/src/url-safety.ts`
   - Shared restore/suspend URL validator (`http/https`, max length 2048).
 - `extension/src/options.ts`
@@ -54,7 +54,7 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 3. Sweep evaluation
 - Alarm (`suspend-sweep-v1`) runs every minute.
 - Alarm ticks are cadence-gated (`1..30` minute effective interval based on `idleMinutes`) before running full sweep logic.
-- Sweep candidates are queried with pre-filters (`active: false` plus optional `pinned: false` / `audible: false`).
+- Sweep candidates are queried with pre-filters (`active: false`; `pinned/audible` filters are applied only when site profiles are not configured).
 - If filtered query fails, runtime falls back to unfiltered tab query for safety.
 4. Policy decision
 - Evaluator returns deterministic `{ shouldSuspend, reason }`.
@@ -80,11 +80,12 @@ Timeout basis uses:
 
 ## Settings Model
 - Storage key: `settings`.
-- Envelope schema: `{ schemaVersion: 1, settings: { ... } }`.
+- Envelope schema: `{ schemaVersion: 2, settings: { ... } }` with decode-time migration from v1.
 - Sanitization:
   - `idleMinutes`: integer clamped to `60..43200` (UI exposes `1..720` hours).
   - `skipPinned` / `skipAudible`: strict booleans.
   - `excludedHosts`: normalized/deduped, length and count bounded.
+  - `siteProfiles`: bounded list (`<= 200`) of host rules with optional overrides (`idleMinutes`, `skipPinned`, `skipAudible`, `excludeFromSuspend`).
 - Runtime applies `storage.onChanged` updates without restart.
 
 ## Activity State Model
@@ -97,6 +98,14 @@ Timeout basis uses:
 - Exact rule example: `example.com` matches only `example.com`.
 - Wildcard rule example: `*.example.com` matches subdomains like `a.example.com` but not apex `example.com`.
 - Invalid entries are ignored during normalization; valid entries still persist.
+
+## Site Profile Semantics
+- Host-rule format matches excluded-host semantics (`example.com`, `*.example.com`).
+- Matching precedence is deterministic:
+  1. Exact host before wildcard.
+  2. Longer host target before shorter.
+  3. Earlier profile row as final tie-break.
+- Effective per-tab policy is resolved as: global settings, then matched profile overrides, then policy evaluation.
 
 ## URL Safety Rules
 Shared validator in `url-safety.ts`:

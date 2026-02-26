@@ -55,7 +55,6 @@ Analyze current user-facing product behavior and generate separate, implementati
 
 ## Perspective Outputs
 - `docs/plans/plan-26-per-site-policy-profiles.md`
-- `docs/plans/plan-27-recovery-center-ux-enhancements.md`
 - `docs/plans/plan-28-settings-import-export.md`
 - `docs/plans/plan-29-manual-suspend-controls.md`
 - `docs/plans/plan-30-suspension-reason-transparency.md`
@@ -63,7 +62,6 @@ Analyze current user-facing product behavior and generate separate, implementati
 ## Files Added/Changed
 - `docs/plans/plan-12-feature-discovery-and-draft-plan-generation.md`
 - `docs/plans/plan-26-per-site-policy-profiles.md`
-- `docs/plans/plan-27-recovery-center-ux-enhancements.md`
 - `docs/plans/plan-28-settings-import-export.md`
 - `docs/plans/plan-29-manual-suspend-controls.md`
 - `docs/plans/plan-30-suspension-reason-transparency.md`
@@ -77,14 +75,14 @@ Analyze current user-facing product behavior and generate separate, implementati
   - Result: passed (full local suite, 0 failures).
 - Manual checks:
   - `ROADMAP.md` marks Plan 12 implemented with details link.
-  - `ROADMAP.md` includes draft entries for Plans 26-30 with links.
-  - `docs/plans/README.md` lists Plan 12 and Plans 26-30 exactly once.
+  - `ROADMAP.md` includes draft entries for Plans 26 and 28-30 with links.
+  - `docs/plans/README.md` lists Plan 12 and Plans 26 and 28-30 exactly once.
   - Each new draft includes scoring, explicit non-goals, exit criteria, and rollback.
   - No runtime/source files changed outside planning documentation.
 
 ## Exit Criteria
 - Plan 12 is marked implemented in `ROADMAP.md` with details link.
-- Five separate feature draft plans (26-30) exist with decision-complete sections.
+- Feature draft plans (26 and 28-30) exist with decision-complete sections.
 - Validation checks pass unchanged.
 - Runtime behavior remains unchanged.
 
@@ -92,7 +90,6 @@ Analyze current user-facing product behavior and generate separate, implementati
 - Revert Plan 12 documentation changes in:
   - `docs/plans/plan-12-feature-discovery-and-draft-plan-generation.md`
   - `docs/plans/plan-26-per-site-policy-profiles.md`
-  - `docs/plans/plan-27-recovery-center-ux-enhancements.md`
   - `docs/plans/plan-28-settings-import-export.md`
   - `docs/plans/plan-29-manual-suspend-controls.md`
   - `docs/plans/plan-30-suspension-reason-transparency.md`

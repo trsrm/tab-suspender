@@ -85,7 +85,14 @@ function cloneSettings(settings: Settings): Settings {
     idleMinutes: settings.idleMinutes,
     excludedHosts: [...settings.excludedHosts],
     skipPinned: settings.skipPinned,
-    skipAudible: settings.skipAudible
+    skipAudible: settings.skipAudible,
+    siteProfiles: settings.siteProfiles.map((profile) => ({
+      id: profile.id,
+      hostRule: profile.hostRule,
+      overrides: {
+        ...profile.overrides
+      }
+    }))
   };
 }
 
