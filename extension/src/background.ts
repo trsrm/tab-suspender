@@ -34,13 +34,38 @@ type TabUpdatedChangeInfo = {
   url?: string;
 };
 
-let recoveryEntries: RecoveryEntry[] = [];
-let focusedWindowId: number | null = null;
-let currentSettings: Settings = cloneSettings(DEFAULT_SETTINGS);
-let settingsTransitionEpoch = 0;
-let settingsReady: Promise<void> = Promise.resolve();
-let activityReady: Promise<void> = Promise.resolve();
-let runtimeReady: Promise<void> = Promise.resolve();
+type BackgroundRuntimeState = {
+  recoveryEntries: RecoveryEntry[];
+  focusedWindowId: number | null;
+  currentSettings: Settings;
+  settingsTransitionEpoch: number;
+  runtimeReady: Promise<void>;
+};
+
+type BackgroundTestingApi = {
+  getActivitySnapshot: () => TabActivity[];
+  resetActivityState: () => void;
+  runSuspendSweep: (nowMinute?: number) => Promise<void>;
+  waitForRuntimeReady: () => Promise<void>;
+  flushPersistedActivityWrites: () => Promise<void>;
+  flushPersistedRecoveryWrites: () => Promise<void>;
+  getCurrentSettings: () => Settings;
+  buildSuspendedUrl: (payload: SuspendPayload) => string;
+  decodeSuspendedUrl: (url: string) => DecodedSuspendPayload | null;
+  isSuspendedDataUrl: (url: string | undefined) => boolean;
+};
+
+function createInitialRuntimeState(): BackgroundRuntimeState {
+  return {
+    recoveryEntries: [],
+    focusedWindowId: null,
+    currentSettings: cloneSettings(DEFAULT_SETTINGS),
+    settingsTransitionEpoch: 0,
+    runtimeReady: Promise.resolve()
+  };
+}
+
+const runtimeState = createInitialRuntimeState();
 
 function log(message: string, details?: unknown): void {
   if (details === undefined) {
@@ -68,11 +93,10 @@ function normalizeError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-function invokeChromeApiWithCompatibility<TResult>(
-  invoke: (callback: (result: TResult | undefined) => void) => Promise<TResult> | void,
-  mapResult: (result: TResult | undefined) => TResult
-): Promise<TResult> {
-  return new Promise<TResult>((resolve, reject) => {
+function queryTabs(queryInfo: Record<string, unknown>): Promise<QueryTab[]> {
+  const tabsApi = chrome.tabs;
+
+  return new Promise<QueryTab[]>((resolve, reject) => {
     let settled = false;
 
     const rejectOnce = (error: unknown): void => {
@@ -84,16 +108,16 @@ function invokeChromeApiWithCompatibility<TResult>(
       reject(normalizeError(error));
     };
 
-    const resolveOnce = (value: TResult): void => {
+    const resolveOnce = (tabs: QueryTab[] | undefined): void => {
       if (settled) {
         return;
       }
 
       settled = true;
-      resolve(value);
+      resolve(Array.isArray(tabs) ? tabs : []);
     };
 
-    const callback = (result: TResult | undefined): void => {
+    const callback = (tabs: QueryTab[] | undefined): void => {
       if (settled) {
         return;
       }
@@ -105,14 +129,17 @@ function invokeChromeApiWithCompatibility<TResult>(
         return;
       }
 
-      resolveOnce(mapResult(result));
+      resolveOnce(tabs);
     };
 
     try {
-      const maybePromise = invoke(callback);
+      const maybePromise = tabsApi.query(
+        queryInfo as Parameters<typeof tabsApi.query>[0],
+        callback as Parameters<typeof tabsApi.query>[1]
+      ) as Promise<QueryTab[]> | void;
 
       if (maybePromise && typeof maybePromise.then === "function") {
-        maybePromise.then((result) => resolveOnce(mapResult(result))).catch(rejectOnce);
+        maybePromise.then(resolveOnce).catch(rejectOnce);
       }
     } catch (error) {
       rejectOnce(error);
@@ -120,31 +147,59 @@ function invokeChromeApiWithCompatibility<TResult>(
   });
 }
 
-async function queryTabs(queryInfo: Record<string, unknown>): Promise<QueryTab[]> {
+function updateTab(tabId: number, updateProperties: Record<string, unknown>): Promise<void> {
   const tabsApi = chrome.tabs;
 
-  return invokeChromeApiWithCompatibility<QueryTab[]>(
-    (callback) =>
-      tabsApi.query(
-        queryInfo as Parameters<typeof tabsApi.query>[0],
-        callback as Parameters<typeof tabsApi.query>[1]
-      ) as Promise<QueryTab[]> | void,
-    (tabs) => (Array.isArray(tabs) ? tabs : [])
-  );
-}
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
 
-async function updateTab(tabId: number, updateProperties: Record<string, unknown>): Promise<void> {
-  const tabsApi = chrome.tabs;
+    const rejectOnce = (error: unknown): void => {
+      if (settled) {
+        return;
+      }
 
-  return invokeChromeApiWithCompatibility<void>(
-    (callback) =>
-      tabsApi.update(
+      settled = true;
+      reject(normalizeError(error));
+    };
+
+    const resolveOnce = (): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      resolve();
+    };
+
+    const callback = (): void => {
+      if (settled) {
+        return;
+      }
+
+      const lastError = chrome.runtime.lastError;
+
+      if (lastError) {
+        rejectOnce(new Error(lastError.message));
+        return;
+      }
+
+      resolveOnce();
+    };
+
+    try {
+      const maybePromise = tabsApi.update(
         tabId as Parameters<typeof tabsApi.update>[0],
         updateProperties as Parameters<typeof tabsApi.update>[1],
         callback as Parameters<typeof tabsApi.update>[2]
-      ) as Promise<void> | void,
-    () => undefined
-  );
+      ) as Promise<unknown> | void;
+
+      if (maybePromise && typeof maybePromise.then === "function") {
+        maybePromise.then(() => resolveOnce()).catch(rejectOnce);
+      }
+    } catch (error) {
+      rejectOnce(error);
+    }
+  });
 }
 
 const activityRuntime = createActivityRuntime({
@@ -154,7 +209,7 @@ const activityRuntime = createActivityRuntime({
 });
 
 function snapshotRecoveryState(): RecoveryEntry[] {
-  return recoveryEntries.map((entry) => ({
+  return runtimeState.recoveryEntries.map((entry) => ({
     url: entry.url,
     title: entry.title,
     suspendedAtMinute: entry.suspendedAtMinute
@@ -163,7 +218,7 @@ function snapshotRecoveryState(): RecoveryEntry[] {
 
 async function persistRecoverySnapshot(): Promise<void> {
   const persisted = await saveRecoveryToStorage(snapshotRecoveryState());
-  recoveryEntries = persisted.entries;
+  runtimeState.recoveryEntries = persisted.entries;
 }
 
 const activityPersistQueue = createPersistQueue({
@@ -198,16 +253,16 @@ function logPersistFailure(target: "activity" | "recovery", error: unknown, cont
 }
 
 function beginSettingsTransition(): number {
-  settingsTransitionEpoch += 1;
-  return settingsTransitionEpoch;
+  runtimeState.settingsTransitionEpoch += 1;
+  return runtimeState.settingsTransitionEpoch;
 }
 
 function tryCommitSettingsTransition(epoch: number, settings: Settings): boolean {
-  if (epoch !== settingsTransitionEpoch) {
+  if (epoch !== runtimeState.settingsTransitionEpoch) {
     return false;
   }
 
-  currentSettings = cloneSettings(settings);
+  runtimeState.currentSettings = cloneSettings(settings);
   return true;
 }
 
@@ -244,9 +299,9 @@ async function hydrateSettingsFromStorage(): Promise<void> {
 
 async function hydrateRecoveryFromStorage(): Promise<void> {
   try {
-    recoveryEntries = await loadRecoveryFromStorage();
+    runtimeState.recoveryEntries = await loadRecoveryFromStorage();
   } catch (error) {
-    recoveryEntries = [];
+    runtimeState.recoveryEntries = [];
     log("Failed to load recovery state from storage. Falling back to empty state.", error);
   }
 }
@@ -254,15 +309,15 @@ async function hydrateRecoveryFromStorage(): Promise<void> {
 const suspendRunner = createSuspendRunner({
   queryTabs,
   updateTab,
-  waitForRuntimeReady: () => runtimeReady,
+  waitForRuntimeReady: () => runtimeState.runtimeReady,
   getCurrentEpochMinute,
-  getCurrentSettings: () => currentSettings,
+  getCurrentSettings: () => runtimeState.currentSettings,
   getActivityForTab: (tabId) => activityRuntime.getActivityForTab(tabId),
   ensureTabActivityBaseline: (tab, nowMinute) => activityRuntime.ensureTabActivityBaseline(tab, nowMinute),
   markTabUpdated: (tabId, windowId, minute) => activityRuntime.markTabUpdated(tabId, windowId, minute),
   schedulePersistActivity,
   appendRecoveryEntry: (entry) => {
-    recoveryEntries = suspendRunner.appendRecoveryEntryWithCap(entry, recoveryEntries);
+    runtimeState.recoveryEntries = suspendRunner.appendRecoveryEntryWithCap(entry, runtimeState.recoveryEntries);
   },
   schedulePersistRecovery,
   log
@@ -276,7 +331,7 @@ const sweepCoordinator = createSweepCoordinator({
 });
 
 function alignSweepCadenceAfterSettingsChange(nowMinute = getCurrentEpochMinute()): void {
-  const interval = computeSweepIntervalMinutes(currentSettings);
+  const interval = computeSweepIntervalMinutes(runtimeState.currentSettings);
   sweepCoordinator.alignDueCandidate(nowMinute, nowMinute + interval);
 }
 
@@ -320,9 +375,9 @@ function isMeaningfulTabUpdate(changeInfo: unknown): boolean {
   return typeof typed.status === "string" || typeof typed.url === "string";
 }
 
-runtimeReady = (async () => {
-  settingsReady = hydrateSettingsFromStorage();
-  activityReady = activityRuntime.hydrateFromStorage();
+runtimeState.runtimeReady = (async () => {
+  const settingsReady = hydrateSettingsFromStorage();
+  const activityReady = activityRuntime.hydrateFromStorage();
 
   await bootstrapRuntimeState({
     hydrateSettings: () => settingsReady,
@@ -359,7 +414,7 @@ chrome.tabs.onActivated.addListener((activeInfo: ActivatedInfo) => {
 
   if (isValidId(activeInfo.windowId)) {
     activityRuntime.setActiveTabForWindow(activeInfo.windowId, activeInfo.tabId);
-    focusedWindowId = activeInfo.windowId;
+    runtimeState.focusedWindowId = activeInfo.windowId;
   }
 
   schedulePersistActivity();
@@ -375,7 +430,7 @@ chrome.tabs.onUpdated.addListener((tabId: number, changeInfo: unknown, tab: Quer
   if (activityRuntime.markTabActive(tabId, tab.windowId, minute)) {
     if (isValidId(tab.windowId)) {
       activityRuntime.setActiveTabForWindow(tab.windowId, tabId);
-      focusedWindowId = tab.windowId;
+      runtimeState.focusedWindowId = tab.windowId;
     }
 
     schedulePersistActivity();
@@ -386,19 +441,23 @@ chrome.windows.onFocusChanged.addListener((windowId: number) => {
   const minute = getCurrentEpochMinute();
 
   if (!isValidId(windowId) || windowId === chrome.windows.WINDOW_ID_NONE) {
-    if (isValidId(focusedWindowId) && activityRuntime.markWindowActiveTabInactive(focusedWindowId, minute)) {
+    if (isValidId(runtimeState.focusedWindowId) && activityRuntime.markWindowActiveTabInactive(runtimeState.focusedWindowId, minute)) {
       schedulePersistActivity();
     }
 
-    focusedWindowId = null;
+    runtimeState.focusedWindowId = null;
     return;
   }
 
-  if (isValidId(focusedWindowId) && focusedWindowId !== windowId && activityRuntime.markWindowActiveTabInactive(focusedWindowId, minute)) {
+  if (
+    isValidId(runtimeState.focusedWindowId) &&
+    runtimeState.focusedWindowId !== windowId &&
+    activityRuntime.markWindowActiveTabInactive(runtimeState.focusedWindowId, minute)
+  ) {
     schedulePersistActivity();
   }
 
-  focusedWindowId = windowId;
+  runtimeState.focusedWindowId = windowId;
 
   void queryTabs({ active: true, windowId })
     .then((tabs) => {
@@ -505,7 +564,7 @@ chrome.alarms.onAlarm.addListener((alarm: AlarmInfo | undefined) => {
     return;
   }
 
-  sweepCoordinator.markRan(nowMinute, computeSweepIntervalMinutes(currentSettings));
+  sweepCoordinator.markRan(nowMinute, computeSweepIntervalMinutes(runtimeState.currentSettings));
   void sweepCoordinator.requestSweep(nowMinute);
 });
 
@@ -523,19 +582,19 @@ if (chrome.storage?.onChanged && typeof chrome.storage.onChanged.addListener ===
 
 scheduleSuspendSweepAlarm();
 
-export const __testing = {
+export const __testing: BackgroundTestingApi = {
   getActivitySnapshot(): TabActivity[] {
     return activityRuntime.snapshotActivityState();
   },
   resetActivityState(): void {
     activityRuntime.resetActivityState();
-    focusedWindowId = null;
+    runtimeState.focusedWindowId = null;
   },
   runSuspendSweep(nowMinute?: number): Promise<void> {
     return suspendRunner.runSuspendSweep(nowMinute);
   },
   waitForRuntimeReady(): Promise<void> {
-    return runtimeReady;
+    return runtimeState.runtimeReady;
   },
   flushPersistedActivityWrites(): Promise<void> {
     return activityPersistQueue.waitForIdle();
@@ -544,7 +603,7 @@ export const __testing = {
     return recoveryPersistQueue.waitForIdle();
   },
   getCurrentSettings(): Settings {
-    return cloneSettings(currentSettings);
+    return cloneSettings(runtimeState.currentSettings);
   },
   buildSuspendedUrl(payload: SuspendPayload): string {
     return encodeSuspendedUrl(payload);

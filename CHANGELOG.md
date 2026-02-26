@@ -2,7 +2,13 @@
 
 All notable user-facing changes are documented in this file.
 
-Current release: **1.1.6**
+Current release: **1.1.7**
+
+## [1.1.7] - 2026-02-26
+- Improved background runtime consistency by centralizing runtime state ownership, reducing edge-case drift during event-heavy tab/window activity.
+- Simplified tab query/update compatibility handling with focused wrappers, preserving existing behavior while reducing maintenance risk.
+- Kept suspend, restore, settings, and recovery flows behavior-compatible with no required user migration or settings reset.
+- Expanded regression verification across background wiring, settings runtime, suspend action, and full suite coverage to confirm no behavior regressions.
 
 ## [1.1.6] - 2026-02-26
 - Split Options page feedback into separate settings and recovery status channels so save/load messages do not overwrite reopen results.

@@ -73,7 +73,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 20: Performance opportunities ([details](docs/plans/plan-20-performance-opportunities.md))
 - [x] Plan 21: Reliability hardening opportunities ([details](docs/plans/plan-21-reliability-hardening-opportunities.md))
 - [x] Plan 22: Simplicity UX and maintenance opportunities ([details](docs/plans/plan-22-simplicity-ux-and-maintenance.md))
-- [ ] Plan 23: (draft) Over-engineering reduction opportunities ([details](docs/plans/plan-23-over-engineering-reduction.md))
+- [x] Plan 23: Over-engineering reduction opportunities ([details](docs/plans/plan-23-over-engineering-reduction.md))
 - [ ] Plan 24: (draft) Anti-pattern and code-health opportunities ([details](docs/plans/plan-24-anti-patterns-and-code-health.md))
 - [ ] Plan 25: (draft) Scheduled snooze and quiet hours ([details](docs/plans/plan-25-scheduled-snooze-and-quiet-hours.md))
 - [ ] Plan 26: (draft) Per-site policy profiles ([details](docs/plans/plan-26-per-site-policy-profiles.md))
@@ -186,6 +186,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-029**: Options UI status messaging is now split into separate settings and recovery channels, while suspended-page copy/status strings are centralized in grouped message maps with explicit invalid-reason mapping.
   - Alternatives: keep a single shared options status region and scattered suspended-page constants.
   - Impact: lower UI-state coupling and reduced message-drift risk with no behavior, policy, or storage-contract changes.
+- **D-030**: Background runtime mutable state is now centralized in a typed `runtimeState` envelope, and generic tab API compatibility indirection is replaced by focused `queryTabs`/`updateTab` wrappers.
+  - Alternatives: retain scattered module-level globals and a shared generic invocation helper.
+  - Impact: lower orchestration complexity and clearer ownership boundaries in `background.ts` without changing runtime behavior or storage contracts.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -215,3 +218,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-26: Completed Plan 20 performance opportunities by removing repeated suspend-path URL parsing, optimizing activity persistence snapshots, and adding keyed recovery-list rerender reconciliation.
 - 2026-02-26: Completed Plan 21 reliability hardening with settings transition epoch guards, bounded persistence retries/backoff, and sweep failure-path invariant coverage.
 - 2026-02-26: Completed Plan 22 simplicity UX/maintenance pass by splitting options settings vs recovery status channels, centralizing suspended-page message maps, and adding status-isolation regression coverage.
+- 2026-02-26: Completed Plan 23 over-engineering reduction by centralizing background runtime state in a typed envelope, replacing generic tab API indirection with focused wrappers, and formalizing the `__testing` contract.

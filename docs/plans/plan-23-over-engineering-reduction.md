@@ -1,88 +1,68 @@
 # Plan 23 - Over-Engineering Reduction
 
 ## Status
-Draft
+Implemented
 
 ## Goal
-Reduce unnecessary abstraction and internal complexity where implementation is heavier than current product needs.
+Reduce avoidable internal complexity in background runtime orchestration while preserving suspend/restore behavior, storage schema, and user-visible UX.
 
 ## Scope
-- Target internal patterns with high abstraction overhead.
-- Preserve current user-visible behavior and safeguards.
+- Centralize mutable background runtime state in one explicit typed envelope.
+- Replace generic tab API compatibility helper with narrow `queryTabs(...)` and `updateTab(...)` wrappers.
+- Keep `__testing` behavior stable while formalizing its shape with a named type.
 
 ## Non-goals
-- No broad rewrites.
-- No removal of needed compatibility behavior without evidence.
-
-## Lens Definition
-Over-engineering here means complexity that is not justified by current requirements or demonstrated risk.
-
-## Scoring Model
-- `Impact` (1-5)
-- `Effort` (1-5)
-- `Confidence` (1-5)
-- `Priority Score = (Impact * Confidence) - Effort`
-
-## Recommendations
-### O23-1
-- Finding: global mutable runtime state in `background.ts` spans many concerns and requires many guard variables.
-- Evidence: numerous module-level mutable bindings (`focusedWindowId`, `nextSweepDueMinute`, multiple queues/flags).
-- Risk if unchanged: high incidental complexity and harder onboarding/debugging.
-- Proposed change: collapse state into one explicit `RuntimeState` object passed through focused handlers.
-- Estimated impact: improved reasoning and lower accidental mutation risk.
-- Complexity: medium.
-- Dependencies: cross-check with KISS plan K17-1.
-- Rollback: restore module-level individual globals.
-- Score: Impact 4, Effort 3, Confidence 4, Priority Score 13.
-
-### O23-2
-- Finding: compatibility wrappers are implemented per store with full custom promise/callback bridging logic.
-- Evidence: repeated detailed wrapper logic across three modules.
-- Risk if unchanged: abstraction duplication without proportional benefit.
-- Proposed change: replace per-store wrappers with a single thin adapter and keep store modules domain-focused.
-- Estimated impact: smaller code surface and fewer failure modes.
-- Complexity: medium.
-- Dependencies: DRY plan D19-1.
-- Rollback: restore existing wrappers.
-- Score: Impact 4, Effort 3, Confidence 4, Priority Score 13.
-
-### O23-3
-- Finding: test hook surface in `__testing` includes utilities beyond core invariants.
-- Evidence: background module exports many test-only helpers.
-- Risk if unchanged: production module API accretes testing concerns.
-- Proposed change: limit `__testing` to invariant-critical helpers and move scenario-specific helpers into harness-level composition.
-- Estimated impact: cleaner production module contract.
-- Complexity: low-to-medium.
-- Dependencies: YAGNI plan Y18-3.
-- Rollback: restore current `__testing` map.
-- Score: Impact 3, Effort 2, Confidence 4, Priority Score 10.
+- No policy or suspend-decision behavior changes.
+- No settings/activity/recovery schema or key changes.
+- No options or suspended page UX changes.
+- No broad runtime module redesign beyond `background.ts` ownership simplification.
 
 ## Implementation Steps
-1. Define minimal abstraction set required for current v1 scope.
-2. Remove or collapse excess abstractions incrementally.
-3. Keep regression behavior fixed via targeted and full suites.
+1. Added `BackgroundRuntimeState` and `createInitialRuntimeState()` in `extension/src/background.ts`.
+2. Routed mutable runtime values through `runtimeState`:
+   - `recoveryEntries`
+   - `focusedWindowId`
+   - `currentSettings`
+   - `settingsTransitionEpoch`
+   - `runtimeReady`
+3. Removed generic `invokeChromeApiWithCompatibility(...)` and introduced focused wrappers:
+   - `queryTabs(...)`
+   - `updateTab(...)`
+4. Added explicit `BackgroundTestingApi` type and exported `__testing` using that contract, preserving existing methods and semantics.
 
-## Files Expected to Change
+## Files Added/Changed
 - `extension/src/background.ts`
-- `extension/src/settings-store.ts`
-- `extension/src/activity-store.ts`
-- `extension/src/recovery-store.ts`
-- `tests/helpers/background-harness.mjs`
-- `tests/*`
-- `docs/architecture.md`
 - `docs/plans/plan-23-over-engineering-reduction.md`
 - `ROADMAP.md`
 
-## Test/Evidence Expectations
-- `npm run typecheck`
-- `npm run test`
+## Tests/Evidence
+- Command: `npm run build`
+  - Result: passed.
+- Command: `node --test tests/background-event-wiring.test.mjs tests/settings-runtime.test.mjs tests/suspend-action.test.mjs`
+  - Result: passed (38 tests, 0 failures).
+- Command: `npm run test`
+  - Result: passed (94 tests, 0 failures).
 
 ## Exit Criteria
-- Internal complexity is reduced with no behavior drift.
-- Abstraction count is lower and easier to audit.
+- Background mutable runtime state is centralized in a typed state envelope.
+- Over-generic tab API wrapper abstraction is removed in favor of narrow wrappers with identical compatibility behavior.
+- Existing `__testing` hooks remain behavior-compatible and are now type-constrained.
+- Targeted and full regression suites pass.
 
 ## Rollback
-- Revert Plan 23 files and rerun tests.
+- Revert Plan 23 files:
+  - `extension/src/background.ts`
+  - `docs/plans/plan-23-over-engineering-reduction.md`
+  - `ROADMAP.md`
+- Re-run:
+  - `npm run build`
+  - `npm run test`
 
-## Risks Left
-- Some abstractions are still necessary for Safari API compatibility and MV3 lifecycle semantics.
+## Decisions
+- Keep runtime orchestration behavior unchanged and confine Plan 23 changes to maintainability-focused internal structure.
+- Preserve callback/promise compatibility semantics in tab API wrappers while removing generic abstraction overhead.
+- Treat `__testing` as an explicit contract to avoid accidental surface growth.
+
+## Retrospective
+- What changed: `background.ts` now has clearer state ownership and less abstraction indirection, which reduces cognitive load during debugging.
+- Risks left: event-driven MV3 runtime behavior still requires broad regression coverage on future runtime edits.
