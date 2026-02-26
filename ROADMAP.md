@@ -82,6 +82,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [ ] Plan 29: (draft) Manual suspend controls ([details](docs/plans/plan-29-manual-suspend-controls.md))
 - [ ] Plan 30: (draft) Suspension reason transparency ([details](docs/plans/plan-30-suspension-reason-transparency.md))
 - [ ] Plan 31: (draft) Disable/uninstall-safe suspended tab survival (prevent suspended tabs from closing when extension is disabled/uninstalled)
+- [x] Plan 32: Long-idle hours UX + aggressive sweep scaling (CPU-first) ([details](docs/plans/plan-32-hours-ui-and-long-idle-cadence.md))
 
 ## Governance Rules
 - Execute one plan per implementation turn.
@@ -161,6 +162,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-021**: Local install packaging is standardized on a committed in-repo Xcode wrapper project hydrated by synced `build/extension` artifacts.
   - Alternatives: docs-only manual setup, or generating wrapper project ad hoc per developer.
   - Impact: deterministic contributor installation path with reduced setup drift and reproducible Safari enablement workflow.
+- **D-022**: Idle timeout is now configured in hours in the options UI (`1..720`), while storage/runtime remain minute-canonical for compatibility; default timeout is 24 hours and sweep cadence scales up to a 30-minute max interval for long-idle profiles.
+  - Alternatives: keep minute-based UI/range, introduce schema migration to `idleHours`, or retain 5-minute max sweep cadence.
+  - Impact: better alignment with long-idle usage patterns and lower background CPU on high-idle configurations without breaking existing stored settings format.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -182,3 +186,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-26: Completed Plan 16 installable Safari packaging baseline with committed Xcode wrapper scaffolding and build-to-wrapper resource sync workflow.
 - 2026-02-26: Completed Plan 11 analysis-only multi-lens review and generated draft Plans 17-24 with standardized scoring/rubric metadata.
 - 2026-02-26: Completed Plan 12 feature discovery analysis and generated draft Plans 25-30 for user-facing capability expansion without runtime changes.
+- 2026-02-26: Completed Plan 32 long-idle hours UX with minute-compatible storage, 24-hour default timeout, and 30-minute max sweep cadence scaling.

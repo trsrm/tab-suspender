@@ -250,12 +250,12 @@ test("alarm ticks are cadence-gated and do not sweep every minute", { concurrenc
   await flushAsyncWork();
   assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 1);
 
-  setNowMinute(64);
+  setNowMinute(71);
   events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
   await flushAsyncWork();
   assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 1);
 
-  setNowMinute(65);
+  setNowMinute(72);
   events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
   await flushAsyncWork();
   assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 2);
@@ -269,7 +269,7 @@ test("settings update can pull sweep due time earlier", { concurrency: false }, 
       settings: {
         schemaVersion: 1,
         settings: {
-          idleMinutes: 120,
+          idleMinutes: 43_200,
           excludedHosts: [],
           skipPinned: true,
           skipAudible: true
@@ -303,7 +303,7 @@ test("settings update can pull sweep due time earlier", { concurrency: false }, 
         oldValue: {
           schemaVersion: 1,
           settings: {
-            idleMinutes: 120,
+            idleMinutes: 43_200,
             excludedHosts: [],
             skipPinned: true,
             skipAudible: true
@@ -312,7 +312,7 @@ test("settings update can pull sweep due time earlier", { concurrency: false }, 
         newValue: {
           schemaVersion: 1,
           settings: {
-            idleMinutes: 12,
+            idleMinutes: 120,
             excludedHosts: [],
             skipPinned: true,
             skipAudible: true
@@ -363,7 +363,7 @@ test("alarm sweeps do not overlap while one sweep is in-flight", { concurrency: 
   await flushAsyncWork();
   assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 1);
 
-  setNowMinute(205);
+  setNowMinute(230);
   events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
   await flushAsyncWork();
   assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 1);
@@ -408,7 +408,7 @@ test("in-flight sweep catch-up is bounded to one additional run", { concurrency:
   await flushAsyncWork();
   assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 1);
 
-  setNowMinute(225);
+  setNowMinute(233);
   events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
   events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
   events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });

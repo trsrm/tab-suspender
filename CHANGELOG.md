@@ -2,7 +2,13 @@
 
 All notable user-facing changes are documented in this file.
 
-Current release: **1.0.0**
+Current release: **1.1.0**
+
+## [1.1.0] - 2026-02-26
+- Plan 32: migrated idle timeout UX from minutes to hours (`1..720`) while keeping minute-based storage compatibility.
+- Raised default idle timeout to 24 hours and expanded maximum configurable timeout to 720 hours.
+- Scaled suspend sweep cadence for long-idle profiles with a `1..30` minute effective interval to reduce CPU usage.
+- Added/updated regression coverage for hours-based settings validation, long-idle cadence behavior, and compatibility paths.
 
 ## [1.0.0] - 2026-02-26
 - Production-ready baseline for local Safari usage:

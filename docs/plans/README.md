@@ -34,6 +34,7 @@ This directory stores detailed plan specs and historical execution records.
 - `plan-28-settings-import-export.md`
 - `plan-29-manual-suspend-controls.md`
 - `plan-30-suspension-reason-transparency.md`
+- `plan-32-hours-ui-and-long-idle-cadence.md`
 
 ## Usage
 - Keep `ROADMAP.md` concise and status-focused.

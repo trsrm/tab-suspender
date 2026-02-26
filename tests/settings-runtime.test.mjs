@@ -21,7 +21,7 @@ test("background uses persisted settings for sweep decisions", { concurrency: fa
       [SETTINGS_STORAGE_KEY]: {
         schemaVersion: 1,
         settings: {
-          idleMinutes: 5,
+          idleMinutes: 60,
           excludedHosts: [],
           skipPinned: false,
           skipAudible: true
@@ -56,11 +56,11 @@ test("background uses persisted settings for sweep decisions", { concurrency: fa
   setNowMinute(1);
   events.tabsOnActivated.dispatch({ tabId: 91, windowId: 8 });
 
-  setNowMinute(7);
-  await backgroundModule.__testing.runSuspendSweep(7);
+  setNowMinute(70);
+  await backgroundModule.__testing.runSuspendSweep(70);
 
   assert.equal(calls.tabsUpdateCalls.length, 1);
-  assert.equal(backgroundModule.__testing.getCurrentSettings().idleMinutes, 5);
+  assert.equal(backgroundModule.__testing.getCurrentSettings().idleMinutes, 60);
   assert.equal(backgroundModule.__testing.getCurrentSettings().skipPinned, false);
 });
 
@@ -144,7 +144,7 @@ test("invalid stored payload falls back to default settings", { concurrency: fal
   await backgroundModule.__testing.waitForRuntimeReady();
 
   assert.deepEqual(backgroundModule.__testing.getCurrentSettings(), {
-    idleMinutes: 60,
+    idleMinutes: 1440,
     excludedHosts: [],
     skipPinned: true,
     skipAudible: true
@@ -159,7 +159,7 @@ test("persisted excluded hosts prevent sweep suspend for exact match", { concurr
       [SETTINGS_STORAGE_KEY]: {
         schemaVersion: 1,
         settings: {
-          idleMinutes: 5,
+          idleMinutes: 60,
           excludedHosts: ["example.com", "*.news.example.com"],
           skipPinned: true,
           skipAudible: true
@@ -211,8 +211,8 @@ test("persisted excluded hosts prevent sweep suspend for exact match", { concurr
   events.tabsOnActivated.dispatch({ tabId: 94, windowId: 10 });
   events.tabsOnActivated.dispatch({ tabId: 95, windowId: 10 });
 
-  setNowMinute(10);
-  await backgroundModule.__testing.runSuspendSweep(10);
+  setNowMinute(70);
+  await backgroundModule.__testing.runSuspendSweep(70);
 
   assert.equal(calls.tabsUpdateCalls.length, 1);
   assert.equal(calls.tabsUpdateCalls[0][0], 95);

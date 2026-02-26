@@ -38,7 +38,7 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 - `tabs.onActivated`, `tabs.onUpdated`, `windows.onFocusChanged`, `tabs.onRemoved`, and `tabs.onReplaced` maintain bounded minute-level tab activity state.
 3. Sweep evaluation
 - Alarm (`suspend-sweep-v1`) runs every minute.
-- Alarm ticks are cadence-gated (`1..5` minute effective interval based on `idleMinutes`) before running full sweep logic.
+- Alarm ticks are cadence-gated (`1..30` minute effective interval based on `idleMinutes`) before running full sweep logic.
 - Sweep candidates are queried with pre-filters (`active: false` plus optional `pinned: false` / `audible: false`).
 - If filtered query fails, runtime falls back to unfiltered tab query for safety.
 4. Policy decision
@@ -66,7 +66,7 @@ Timeout basis uses:
 - Storage key: `settings`.
 - Envelope schema: `{ schemaVersion: 1, settings: { ... } }`.
 - Sanitization:
-  - `idleMinutes`: integer clamped to `1..1440`.
+  - `idleMinutes`: integer clamped to `60..43200` (UI exposes `1..720` hours).
   - `skipPinned` / `skipAudible`: strict booleans.
   - `excludedHosts`: normalized/deduped, length and count bounded.
 - Runtime applies `storage.onChanged` updates without restart.

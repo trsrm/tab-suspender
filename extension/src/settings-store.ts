@@ -3,13 +3,15 @@ import { normalizeExcludedHostEntries } from "./matcher.js";
 
 export const SETTINGS_STORAGE_KEY = "settings";
 export const SETTINGS_SCHEMA_VERSION: SettingsSchemaVersion = 1;
-export const MIN_IDLE_MINUTES = 1;
-export const MAX_IDLE_MINUTES = 1440;
+export const MIN_IDLE_HOURS = 1;
+export const MAX_IDLE_HOURS = 720;
+export const MIN_IDLE_MINUTES = MIN_IDLE_HOURS * 60;
+export const MAX_IDLE_MINUTES = MAX_IDLE_HOURS * 60;
 export const MAX_EXCLUDED_HOST_LENGTH = 253;
 export const MAX_EXCLUDED_HOSTS = 200;
 
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
-  idleMinutes: 60,
+  idleMinutes: 24 * 60,
   excludedHosts: [],
   skipPinned: true,
   skipAudible: true

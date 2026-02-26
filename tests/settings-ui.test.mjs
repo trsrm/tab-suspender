@@ -114,8 +114,8 @@ function createElement({ textContent = "", hidden = false } = {}) {
 function createDom() {
   const elements = {
     settingsForm: createForm(),
-    idleMinutes: createInput(),
-    idleMinutesError: createElement({ hidden: true }),
+    idleHours: createInput(),
+    idleHoursError: createElement({ hidden: true }),
     skipPinned: createInput({ checked: false }),
     skipAudible: createInput({ checked: false }),
     excludedHosts: createInput(),
@@ -238,7 +238,7 @@ test("options page loads defaults when storage is empty", { concurrency: false }
   assert.equal(storageGetCalls.length, 2);
   assert.equal(storageGetCalls[0], SETTINGS_STORAGE_KEY);
   assert.equal(storageGetCalls[1], RECOVERY_STORAGE_KEY);
-  assert.equal(elements.idleMinutes.value, "60");
+  assert.equal(elements.idleHours.value, "24");
   assert.equal(elements.skipPinned.checked, true);
   assert.equal(elements.skipAudible.checked, true);
   assert.equal(elements.excludedHosts.value, "");
@@ -251,7 +251,7 @@ test("options page loads persisted settings values", { concurrency: false }, asy
       [SETTINGS_STORAGE_KEY]: {
         schemaVersion: 1,
         settings: {
-          idleMinutes: 90,
+          idleMinutes: 4320,
           excludedHosts: ["example.com", "*.news.example.org"],
           skipPinned: false,
           skipAudible: true
@@ -260,7 +260,7 @@ test("options page loads persisted settings values", { concurrency: false }, asy
     }
   });
 
-  assert.equal(elements.idleMinutes.value, "90");
+  assert.equal(elements.idleHours.value, "72");
   assert.equal(elements.skipPinned.checked, false);
   assert.equal(elements.skipAudible.checked, true);
   assert.equal(elements.excludedHosts.value, "example.com\n*.news.example.org");
@@ -270,7 +270,7 @@ test("options page loads persisted settings values", { concurrency: false }, asy
 test("save writes versioned sanitized settings payload", { concurrency: false }, async () => {
   const { elements, storageData, storageSetCalls } = await importOptionsWithMocks();
 
-  elements.idleMinutes.value = "30";
+  elements.idleHours.value = "30";
   elements.skipPinned.checked = false;
   elements.skipAudible.checked = false;
   elements.excludedHosts.value = "  Example.COM\nfoo.com,FOO.com\nbar.com\n";
@@ -283,20 +283,20 @@ test("save writes versioned sanitized settings payload", { concurrency: false },
   assert.deepEqual(storageData[SETTINGS_STORAGE_KEY], {
     schemaVersion: 1,
     settings: {
-      idleMinutes: 30,
+      idleMinutes: 1800,
       excludedHosts: ["example.com", "foo.com", "bar.com"],
       skipPinned: false,
       skipAudible: false
     }
   });
   assert.equal(elements.status.textContent, "Settings saved.");
-  assert.equal(elements.idleMinutesError.hidden, true);
+  assert.equal(elements.idleHoursError.hidden, true);
 });
 
 test("save ignores invalid excluded host entries with non-blocking status", { concurrency: false }, async () => {
   const { elements, storageData } = await importOptionsWithMocks();
 
-  elements.idleMinutes.value = "45";
+  elements.idleHours.value = "45";
   elements.excludedHosts.value = "example.com\n*.news.example.com\nhttps://bad.com\nbad host\n*bad.com";
 
   elements.settingsForm.submit();
@@ -306,7 +306,7 @@ test("save ignores invalid excluded host entries with non-blocking status", { co
   assert.deepEqual(storageData[SETTINGS_STORAGE_KEY], {
     schemaVersion: 1,
     settings: {
-      idleMinutes: 45,
+      idleMinutes: 2700,
       excludedHosts: ["example.com", "*.news.example.com"],
       skipPinned: true,
       skipAudible: true
@@ -315,16 +315,16 @@ test("save ignores invalid excluded host entries with non-blocking status", { co
   assert.equal(elements.status.textContent, "Settings saved. Ignored 3 invalid excluded host entries.");
 });
 
-test("invalid idle minutes blocks save and shows field error", { concurrency: false }, async () => {
+test("invalid idle hours blocks save and shows field error", { concurrency: false }, async () => {
   const { elements, storageSetCalls } = await importOptionsWithMocks();
 
-  elements.idleMinutes.value = "0";
+  elements.idleHours.value = "0";
   elements.settingsForm.submit();
   await flushAsyncWork();
 
   assert.equal(storageSetCalls.length, 0);
-  assert.equal(elements.idleMinutesError.hidden, false);
-  assert.equal(elements.idleMinutesError.textContent, "Enter a whole number from 1 to 1440.");
+  assert.equal(elements.idleHoursError.hidden, false);
+  assert.equal(elements.idleHoursError.textContent, "Enter a whole number from 1 to 720.");
   assert.equal(elements.status.textContent, "Settings were not saved.");
 });
 

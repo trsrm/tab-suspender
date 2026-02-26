@@ -32,6 +32,17 @@ test("runSuspendSweep suspends eligible idle tab with encoded payload", { concur
   setNowMinute(1);
 
   const { events, calls, backgroundModule } = await importBackgroundWithMock({
+    storageSeed: {
+      [SETTINGS_STORAGE_KEY]: {
+        schemaVersion: 1,
+        settings: {
+          idleMinutes: 60,
+          excludedHosts: [],
+          skipPinned: true,
+          skipAudible: true
+        }
+      }
+    },
     queryResponder(queryInfo) {
       if (queryInfo.active === true) {
         return [];
@@ -394,6 +405,17 @@ test("runSuspendSweep continues when one tab update fails", { concurrency: false
   setNowMinute(2);
 
   const { events, calls, backgroundModule } = await importBackgroundWithMock({
+    storageSeed: {
+      [SETTINGS_STORAGE_KEY]: {
+        schemaVersion: 1,
+        settings: {
+          idleMinutes: 60,
+          excludedHosts: [],
+          skipPinned: true,
+          skipAudible: true
+        }
+      }
+    },
     queryResponder(queryInfo) {
       if (queryInfo.active === true) {
         return [];
@@ -452,6 +474,17 @@ test("runSuspendSweep trims and caps title payload at 120 characters", { concurr
 
   const longTitle = `   ${"A".repeat(140)}   `;
   const { events, calls, backgroundModule } = await importBackgroundWithMock({
+    storageSeed: {
+      [SETTINGS_STORAGE_KEY]: {
+        schemaVersion: 1,
+        settings: {
+          idleMinutes: 60,
+          excludedHosts: [],
+          skipPinned: true,
+          skipAudible: true
+        }
+      }
+    },
     queryResponder(queryInfo) {
       if (queryInfo.active === true) {
         return [];
@@ -496,7 +529,7 @@ test("focus switch starts timeout from switch-away minute", { concurrency: false
       [SETTINGS_STORAGE_KEY]: {
         schemaVersion: 1,
         settings: {
-          idleMinutes: 2,
+          idleMinutes: 60,
           excludedHosts: [],
           skipPinned: true,
           skipAudible: true
@@ -526,12 +559,12 @@ test("focus switch starts timeout from switch-away minute", { concurrency: false
   setNowMinute(5);
   events.tabsOnActivated.dispatch({ tabId: 2, windowId: 1 });
 
-  setNowMinute(6);
-  await backgroundModule.__testing.runSuspendSweep(6);
+  setNowMinute(64);
+  await backgroundModule.__testing.runSuspendSweep(64);
   assert.equal(calls.tabsUpdateCalls.length, 0);
 
-  setNowMinute(7);
-  await backgroundModule.__testing.runSuspendSweep(7);
+  setNowMinute(65);
+  await backgroundModule.__testing.runSuspendSweep(65);
   assert.equal(calls.tabsUpdateCalls.length, 1);
   assert.equal(calls.tabsUpdateCalls[0][0], 1);
 });
@@ -544,7 +577,7 @@ test("missing activity baseline delays suspend until one full timeout interval",
       [SETTINGS_STORAGE_KEY]: {
         schemaVersion: 1,
         settings: {
-          idleMinutes: 2,
+          idleMinutes: 60,
           excludedHosts: [],
           skipPinned: true,
           skipAudible: true
@@ -570,10 +603,10 @@ test("missing activity baseline delays suspend until one full timeout interval",
   await backgroundModule.__testing.runSuspendSweep(10);
   assert.equal(calls.tabsUpdateCalls.length, 0);
 
-  await backgroundModule.__testing.runSuspendSweep(11);
+  await backgroundModule.__testing.runSuspendSweep(69);
   assert.equal(calls.tabsUpdateCalls.length, 0);
 
-  await backgroundModule.__testing.runSuspendSweep(12);
+  await backgroundModule.__testing.runSuspendSweep(70);
   assert.equal(calls.tabsUpdateCalls.length, 1);
   assert.equal(calls.tabsUpdateCalls[0][0], 50);
 });
@@ -601,7 +634,7 @@ test("persisted activity survives worker restart and enables suspend without rea
       [SETTINGS_STORAGE_KEY]: {
         schemaVersion: 1,
         settings: {
-          idleMinutes: 2,
+          idleMinutes: 60,
           excludedHosts: [],
           skipPinned: true,
           skipAudible: true
@@ -624,14 +657,14 @@ test("persisted activity survives worker restart and enables suspend without rea
 
   restoreBackgroundGlobals();
 
-  setNowMinute(4);
+  setNowMinute(62);
   const secondRun = await importBackgroundWithMock({
     storageSeed: restartedStorageSeed,
     queryResponder
   });
 
   await secondRun.backgroundModule.__testing.waitForRuntimeReady();
-  await secondRun.backgroundModule.__testing.runSuspendSweep(4);
+  await secondRun.backgroundModule.__testing.runSuspendSweep(62);
 
   assert.equal(secondRun.calls.tabsUpdateCalls.length, 1);
   assert.equal(secondRun.calls.tabsUpdateCalls[0][0], 1);

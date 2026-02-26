@@ -12,7 +12,7 @@ const WINDOW_ID_NONE = -1;
 const MAX_SUSPENDED_TITLE_LENGTH = 120;
 const SUSPEND_SWEEP_ALARM = "suspend-sweep-v1";
 const SUSPEND_SWEEP_PERIOD_MINUTES = 1;
-const MAX_SWEEP_INTERVAL_MINUTES = 5;
+const MAX_SWEEP_INTERVAL_MINUTES = 30;
 const MIN_SWEEP_INTERVAL_MINUTES = 1;
 
 type QueryTab = {
@@ -191,7 +191,7 @@ function applyStoredSettingsValue(value: unknown): void {
 }
 
 function computeSweepIntervalMinutes(settings: Settings): number {
-  const interval = Math.floor(settings.idleMinutes / 12);
+  const interval = Math.floor(settings.idleMinutes / 120);
   return Math.min(MAX_SWEEP_INTERVAL_MINUTES, Math.max(MIN_SWEEP_INTERVAL_MINUTES, interval));
 }
 
@@ -479,7 +479,7 @@ async function updateTab(tabId: number, updateProperties: Record<string, unknown
 }
 
 function getSyntheticTimedOutActivity(nowMinute: number): Pick<TabActivity, "lastActiveAtMinute" | "lastUpdatedAtMinute"> {
-  const eligibleReferenceMinute = Math.max(0, nowMinute - currentSettings.idleMinutes);
+  const eligibleReferenceMinute = nowMinute - currentSettings.idleMinutes;
 
   return {
     lastActiveAtMinute: eligibleReferenceMinute,

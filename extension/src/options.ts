@@ -1,9 +1,9 @@
 import {
   DEFAULT_SETTINGS,
+  MAX_IDLE_HOURS,
   MAX_EXCLUDED_HOST_LENGTH,
   MAX_EXCLUDED_HOSTS,
-  MAX_IDLE_MINUTES,
-  MIN_IDLE_MINUTES,
+  MIN_IDLE_HOURS,
   loadSettingsFromStorage,
   saveSettingsToStorage
 } from "./settings-store.js";
@@ -18,8 +18,8 @@ const RECOVERY_DEFAULT_TITLE = "Untitled tab";
 
 type OptionsElements = {
   form: HTMLFormElement;
-  idleMinutesInput: HTMLInputElement;
-  idleMinutesError: HTMLElement;
+  idleHoursInput: HTMLInputElement;
+  idleHoursError: HTMLElement;
   skipPinnedInput: HTMLInputElement;
   skipAudibleInput: HTMLInputElement;
   excludedHostsInput: HTMLTextAreaElement;
@@ -31,8 +31,8 @@ type OptionsElements = {
 
 function getOptionsElements(): OptionsElements | null {
   const form = document.getElementById("settingsForm");
-  const idleMinutesInput = document.getElementById("idleMinutes");
-  const idleMinutesError = document.getElementById("idleMinutesError");
+  const idleHoursInput = document.getElementById("idleHours");
+  const idleHoursError = document.getElementById("idleHoursError");
   const skipPinnedInput = document.getElementById("skipPinned");
   const skipAudibleInput = document.getElementById("skipAudible");
   const excludedHostsInput = document.getElementById("excludedHosts");
@@ -43,8 +43,8 @@ function getOptionsElements(): OptionsElements | null {
 
   if (
     !form ||
-    !idleMinutesInput ||
-    !idleMinutesError ||
+    !idleHoursInput ||
+    !idleHoursError ||
     !skipPinnedInput ||
     !skipAudibleInput ||
     !excludedHostsInput ||
@@ -58,8 +58,8 @@ function getOptionsElements(): OptionsElements | null {
 
   return {
     form: form as HTMLFormElement,
-    idleMinutesInput: idleMinutesInput as HTMLInputElement,
-    idleMinutesError: idleMinutesError as HTMLElement,
+    idleHoursInput: idleHoursInput as HTMLInputElement,
+    idleHoursError: idleHoursError as HTMLElement,
     skipPinnedInput: skipPinnedInput as HTMLInputElement,
     skipAudibleInput: skipAudibleInput as HTMLInputElement,
     excludedHostsInput: excludedHostsInput as HTMLTextAreaElement,
@@ -75,26 +75,26 @@ function setStatus(elements: OptionsElements, message: string): void {
 }
 
 function setBusy(elements: OptionsElements, busy: boolean): void {
-  elements.idleMinutesInput.disabled = busy;
+  elements.idleHoursInput.disabled = busy;
   elements.skipPinnedInput.disabled = busy;
   elements.skipAudibleInput.disabled = busy;
   elements.excludedHostsInput.disabled = busy;
   elements.saveButton.disabled = busy;
 }
 
-function clearIdleMinutesError(elements: OptionsElements): void {
-  elements.idleMinutesError.hidden = true;
-  elements.idleMinutesError.textContent = "";
-  elements.idleMinutesInput.setAttribute("aria-invalid", "false");
+function clearIdleHoursError(elements: OptionsElements): void {
+  elements.idleHoursError.hidden = true;
+  elements.idleHoursError.textContent = "";
+  elements.idleHoursInput.setAttribute("aria-invalid", "false");
 }
 
-function setIdleMinutesError(elements: OptionsElements, message: string): void {
-  elements.idleMinutesError.hidden = false;
-  elements.idleMinutesError.textContent = message;
-  elements.idleMinutesInput.setAttribute("aria-invalid", "true");
+function setIdleHoursError(elements: OptionsElements, message: string): void {
+  elements.idleHoursError.hidden = false;
+  elements.idleHoursError.textContent = message;
+  elements.idleHoursInput.setAttribute("aria-invalid", "true");
 }
 
-function parseIdleMinutes(rawValue: string): number | null {
+function parseIdleHours(rawValue: string): number | null {
   const trimmed = rawValue.trim();
 
   if (trimmed.length === 0) {
@@ -107,7 +107,7 @@ function parseIdleMinutes(rawValue: string): number | null {
     return null;
   }
 
-  if (parsed < MIN_IDLE_MINUTES || parsed > MAX_IDLE_MINUTES) {
+  if (parsed < MIN_IDLE_HOURS || parsed > MAX_IDLE_HOURS) {
     return null;
   }
 
@@ -115,7 +115,7 @@ function parseIdleMinutes(rawValue: string): number | null {
 }
 
 function renderSettings(elements: OptionsElements, settings: Settings): void {
-  elements.idleMinutesInput.value = String(settings.idleMinutes);
+  elements.idleHoursInput.value = String(Math.max(MIN_IDLE_HOURS, Math.floor(settings.idleMinutes / 60)));
   elements.skipPinnedInput.checked = settings.skipPinned;
   elements.skipAudibleInput.checked = settings.skipAudible;
   elements.excludedHostsInput.value = settings.excludedHosts.join("\n");
@@ -279,7 +279,7 @@ async function loadAndRenderRecovery(elements: OptionsElements): Promise<void> {
 async function loadAndRenderSettings(elements: OptionsElements): Promise<void> {
   setStatus(elements, "Loading settings...");
   setBusy(elements, true);
-  clearIdleMinutesError(elements);
+  clearIdleHoursError(elements);
 
   try {
     const settings = await loadSettingsFromStorage();
@@ -294,14 +294,14 @@ async function loadAndRenderSettings(elements: OptionsElements): Promise<void> {
 }
 
 async function handleSave(elements: OptionsElements): Promise<void> {
-  clearIdleMinutesError(elements);
+  clearIdleHoursError(elements);
 
-  const parsedIdleMinutes = parseIdleMinutes(elements.idleMinutesInput.value);
+  const parsedIdleHours = parseIdleHours(elements.idleHoursInput.value);
 
-  if (parsedIdleMinutes === null) {
-    setIdleMinutesError(
+  if (parsedIdleHours === null) {
+    setIdleHoursError(
       elements,
-      `Enter a whole number from ${MIN_IDLE_MINUTES} to ${MAX_IDLE_MINUTES}.`
+      `Enter a whole number from ${MIN_IDLE_HOURS} to ${MAX_IDLE_HOURS}.`
     );
     setStatus(elements, "Settings were not saved.");
     return;
@@ -317,7 +317,7 @@ async function handleSave(elements: OptionsElements): Promise<void> {
 
   try {
     const persisted = await saveSettingsToStorage({
-      idleMinutes: parsedIdleMinutes,
+      idleMinutes: parsedIdleHours * 60,
       skipPinned: elements.skipPinnedInput.checked,
       skipAudible: elements.skipAudibleInput.checked,
       excludedHosts: normalizedExcludedHosts.normalizedHosts

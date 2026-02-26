@@ -43,10 +43,8 @@ test("manifest includes extension and action icon mappings", () => {
     16: "icons/icon-16.png",
     32: "icons/icon-32.png",
     48: "icons/icon-48.png",
+    96: "icons/icon-96.png",
     128: "icons/icon-128.png"
   });
-  assert.deepEqual(manifest.action.default_icon, {
-    16: "icons/icon-16.png",
-    32: "icons/icon-32.png"
-  });
+  assert.equal(manifest.action.default_icon, "icons/icon-32.png");
 });
