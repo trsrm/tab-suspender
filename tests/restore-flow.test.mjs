@@ -102,7 +102,7 @@ async function importSuspendedWithSearch(search, { replaceImpl, withClipboard = 
 }
 
 test("url safety validator enforces protocol and max length", { concurrency: false }, async () => {
-  const { MAX_RESTORABLE_URL_LENGTH, validateRestorableUrl } = await importUrlSafety();
+  const { MAX_RESTORABLE_URL_LENGTH, validateRestorableUrl, validateRestorableUrlWithMetadata } = await importUrlSafety();
 
   assert.equal(MAX_RESTORABLE_URL_LENGTH, 2048);
   assert.deepEqual(validateRestorableUrl("  https://example.com/path?q=1  "), {
@@ -122,6 +122,18 @@ test("url safety validator enforces protocol and max length", { concurrency: fal
   assert.deepEqual(validateRestorableUrl("not-a-valid-url"), {
     ok: false,
     reason: "invalidUrl"
+  });
+
+  assert.deepEqual(validateRestorableUrlWithMetadata("  https://example.com/path?q=1  "), {
+    ok: true,
+    url: "https://example.com/path?q=1",
+    protocol: "https:",
+    hostname: "example.com"
+  });
+  assert.deepEqual(validateRestorableUrlWithMetadata(""), { ok: false, reason: "missing" });
+  assert.deepEqual(validateRestorableUrlWithMetadata("javascript:alert(1)"), {
+    ok: false,
+    reason: "invalidProtocol"
   });
 });
 

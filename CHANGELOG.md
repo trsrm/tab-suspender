@@ -2,7 +2,13 @@
 
 All notable user-facing changes are documented in this file.
 
-Current release: **1.1.3**
+Current release: **1.1.4**
+
+## [1.1.4] - 2026-02-26
+- Reduced suspend-path CPU overhead by consolidating URL validation/parsing into a single metadata-aware evaluation step.
+- Optimized background activity persistence to avoid unnecessary pre-write sorting/allocation while preserving deterministic stored ordering.
+- Improved Options recovery list responsiveness by reusing unchanged rows during rerenders instead of rebuilding the full list.
+- Preserved existing suspend safety guards, action-click behavior, and storage schema compatibility with full regression coverage.
 
 ## [1.1.3] - 2026-02-26
 - Removed legacy background PING message handling to reduce unsupported runtime API surface.

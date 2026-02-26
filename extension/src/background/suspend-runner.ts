@@ -1,7 +1,7 @@
 import { evaluateSuspendDecision } from "../policy.js";
 import type { DecodedSuspendPayload, PolicyEvaluatorInput, RecoveryEntry, Settings, SuspendPayload, TabActivity } from "../types.js";
-import { validateRestorableUrl } from "../url-safety.js";
-import { isExcludedUrlByHost } from "../matcher.js";
+import { validateRestorableUrlWithMetadata } from "../url-safety.js";
+import { matchesExcludedHost } from "../matcher.js";
 import { MAX_RECOVERY_ENTRIES } from "../recovery-store.js";
 import {
   buildSuspendedDataUrl,
@@ -15,6 +15,13 @@ import { isValidId } from "./activity-runtime.js";
 type SuspendEvaluationOptions = {
   ignoreActive?: boolean;
   forceTimeoutReached?: boolean;
+};
+
+type TabUrlAnalysis = {
+  internalUrl: boolean;
+  urlTooLong: boolean;
+  excludedHost: boolean;
+  restorableUrl: string | null;
 };
 
 type CreateSuspendRunnerOptions = {
@@ -90,10 +97,9 @@ function buildPolicyInput(
   nowMinute: number,
   settings: Settings,
   activity: Pick<TabActivity, "lastActiveAtMinute" | "lastUpdatedAtMinute"> | null,
+  urlAnalysis: TabUrlAnalysis,
   options: SuspendEvaluationOptions = {}
 ): PolicyEvaluatorInput {
-  const urlValidation = validateRestorableUrl(tab.url);
-
   return {
     tab: {
       active: options.ignoreActive ? false : tab.active === true,
@@ -105,23 +111,38 @@ function buildPolicyInput(
     settings,
     nowMinute,
     flags: {
-      excludedHost: isExcludedUrlByHost(tab.url ?? null, settings.excludedHosts),
-      urlTooLong: urlValidation.ok ? false : urlValidation.reason === "tooLong"
+      internalUrl: urlAnalysis.internalUrl,
+      excludedHost: urlAnalysis.excludedHost,
+      urlTooLong: urlAnalysis.urlTooLong
     }
   };
 }
 
-function buildSuspendPayload(tab: QueryTab, nowMinute: number): SuspendPayload | null {
-  const urlValidation = validateRestorableUrl(tab.url);
+function buildSuspendPayload(tab: QueryTab, restorableUrl: string, nowMinute: number): SuspendPayload {
+  return {
+    u: restorableUrl,
+    t: sanitizeSuspendedTitle(tab.title),
+    ts: nowMinute
+  };
+}
 
-  if (!urlValidation.ok) {
-    return null;
+function analyzeTabUrl(tab: QueryTab, settings: Settings): TabUrlAnalysis {
+  const validation = validateRestorableUrlWithMetadata(tab.url);
+
+  if (!validation.ok) {
+    return {
+      internalUrl: validation.reason !== "tooLong",
+      urlTooLong: validation.reason === "tooLong",
+      excludedHost: false,
+      restorableUrl: null
+    };
   }
 
   return {
-    u: urlValidation.url,
-    t: sanitizeSuspendedTitle(tab.title),
-    ts: nowMinute
+    internalUrl: false,
+    urlTooLong: false,
+    excludedHost: matchesExcludedHost(validation.hostname, settings.excludedHosts),
+    restorableUrl: validation.url
   };
 }
 
@@ -149,18 +170,21 @@ export function createSuspendRunner(options: CreateSuspendRunnerOptions) {
     const activity = evaluationOptions.forceTimeoutReached
       ? getSyntheticTimedOutActivity(nowMinute, settings)
       : options.getActivityForTab(tab.id) ?? null;
-    const decision = evaluateSuspendDecision(buildPolicyInput(tab, nowMinute, settings, activity, evaluationOptions));
+    const urlAnalysis = analyzeTabUrl(tab, settings);
+    const decision = evaluateSuspendDecision(
+      buildPolicyInput(tab, nowMinute, settings, activity, urlAnalysis, evaluationOptions)
+    );
 
     if (!decision.shouldSuspend) {
       return;
     }
 
-    const payload = buildSuspendPayload(tab, nowMinute);
-
-    if (!payload) {
+    if (!urlAnalysis.restorableUrl) {
       options.log("Skipped eligible suspend candidate due missing URL payload.", { tabId: tab.id });
       return;
     }
+
+    const payload = buildSuspendPayload(tab, urlAnalysis.restorableUrl, nowMinute);
 
     try {
       await options.updateTab(tab.id, { url: encodeSuspendedUrl(payload) });

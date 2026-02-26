@@ -225,11 +225,11 @@ async function importOptionsWithMocks({ storageSeed = {}, tabsCreateResponder } 
   globalThis.chrome = storageMock.chromeMock;
 
   const moduleUrl = `${pathToFileURL(OPTIONS_MODULE_PATH).href}?test=${Date.now()}-${Math.random()}`;
-  await import(moduleUrl);
+  const optionsModule = await import(moduleUrl);
   await flushAsyncWork();
   await flushAsyncWork();
 
-  return { elements, ...storageMock };
+  return { elements, optionsModule, ...storageMock };
 }
 
 test("options page loads defaults when storage is empty", { concurrency: false }, async () => {
@@ -382,6 +382,88 @@ test("options page disables reopen for invalid recovery URLs", { concurrency: fa
   assert.equal(elements.recoveryEmpty.hidden, false);
   assert.equal(elements.recoveryEmpty.textContent, "No recently suspended tabs yet.");
   assert.equal(tabsCreateCalls.length, 0);
+});
+
+test("recovery list reuses unchanged row nodes across rerenders", { concurrency: false }, async () => {
+  const { elements, optionsModule } = await importOptionsWithMocks({
+    storageSeed: {
+      [RECOVERY_STORAGE_KEY]: {
+        schemaVersion: 1,
+        entries: [
+          {
+            url: "https://example.com/a",
+            title: "A",
+            suspendedAtMinute: 100
+          },
+          {
+            url: "https://example.com/b",
+            title: "B",
+            suspendedAtMinute: 99
+          }
+        ]
+      }
+    }
+  });
+
+  const firstRow = elements.recoveryList.children[0];
+  const secondRow = elements.recoveryList.children[1];
+
+  optionsModule.__testing.renderRecoveryList(elements, [
+    {
+      url: "https://example.com/a",
+      title: "A",
+      suspendedAtMinute: 100
+    },
+    {
+      url: "https://example.com/b",
+      title: "B",
+      suspendedAtMinute: 99
+    }
+  ]);
+
+  assert.equal(elements.recoveryList.children[0], firstRow);
+  assert.equal(elements.recoveryList.children[1], secondRow);
+});
+
+test("recovery list only replaces changed rows across rerenders", { concurrency: false }, async () => {
+  const { elements, optionsModule } = await importOptionsWithMocks({
+    storageSeed: {
+      [RECOVERY_STORAGE_KEY]: {
+        schemaVersion: 1,
+        entries: [
+          {
+            url: "https://example.com/a",
+            title: "A",
+            suspendedAtMinute: 100
+          },
+          {
+            url: "https://example.com/b",
+            title: "B",
+            suspendedAtMinute: 99
+          }
+        ]
+      }
+    }
+  });
+
+  const originalFirstRow = elements.recoveryList.children[0];
+  const originalSecondRow = elements.recoveryList.children[1];
+
+  optionsModule.__testing.renderRecoveryList(elements, [
+    {
+      url: "https://example.com/a",
+      title: "A",
+      suspendedAtMinute: 100
+    },
+    {
+      url: "https://example.com/b",
+      title: "Updated",
+      suspendedAtMinute: 99
+    }
+  ]);
+
+  assert.equal(elements.recoveryList.children[0], originalFirstRow);
+  assert.notEqual(elements.recoveryList.children[1], originalSecondRow);
 });
 
 test.afterEach(() => {

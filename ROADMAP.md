@@ -69,8 +69,8 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 16: Installable Safari packaging baseline (in-repo Xcode wrapper + sync workflow) ([details](docs/plans/plan-16-installable-safari-packaging-baseline.md))
 - [x] Plan 17: KISS refactor of background runtime (modularization + shared persist queue + sweep coordinator) ([details](docs/plans/plan-17-kiss-simplification-opportunities.md))
 - [x] Plan 18: YAGNI pruning opportunities (runtime surface + shared storage compatibility adapter) ([details](docs/plans/plan-18-yagni-pruning-opportunities.md))
-- [ ] Plan 19: (draft) DRY consolidation opportunities ([details](docs/plans/plan-19-dry-consolidation-opportunities.md))
-- [ ] Plan 20: (draft) Performance opportunities ([details](docs/plans/plan-20-performance-opportunities.md))
+- [x] Plan 19: DRY consolidation opportunities ([details](docs/plans/plan-19-dry-consolidation-opportunities.md))
+- [x] Plan 20: Performance opportunities ([details](docs/plans/plan-20-performance-opportunities.md))
 - [ ] Plan 21: (draft) Reliability hardening opportunities ([details](docs/plans/plan-21-reliability-hardening-opportunities.md))
 - [ ] Plan 22: (draft) Simplicity UX and maintenance opportunities ([details](docs/plans/plan-22-simplicity-ux-and-maintenance.md))
 - [ ] Plan 23: (draft) Over-engineering reduction opportunities ([details](docs/plans/plan-23-over-engineering-reduction.md))
@@ -174,6 +174,12 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-025**: Legacy background PING runtime messaging was removed, storage callback/promise compatibility wrappers were centralized in `storage-compat.ts`, and `background.ts` test hooks were reduced to active usage only.
   - Alternatives: keep legacy PING surface and per-store wrapper duplication.
   - Impact: smaller runtime API surface, lower maintenance fan-out for storage compatibility fixes, and clearer production-vs-test boundaries.
+- **D-026**: Captured-at UTC minute formatting is centralized in `time-format.ts`, and suspended-title max length is canonicalized in `suspended-payload.ts` and reused by recovery sanitization, with string/limit parity preserved.
+  - Alternatives: continue module-local duplicates in options/suspended/payload/recovery paths.
+  - Impact: lower maintenance fan-out and reduced drift risk with no behavior-contract changes.
+- **D-027**: Plan 20 performance pass centralizes suspend URL analysis into a single metadata-aware validation step, routes internal/excluded/too-long policy checks through precomputed flags, and moves activity persistence to an unsorted write path while preserving deterministic storage ordering in `activity-store`.
+  - Alternatives: keep repeated URL parsing and pre-sort/clone persistence snapshots.
+  - Impact: lower steady-state background CPU/allocation overhead without behavior or schema changes.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -199,3 +205,5 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-26: Completed Plan 32 long-idle hours UX with minute-compatible storage, 24-hour default timeout, and 30-minute max sweep cadence scaling.
 - 2026-02-26: Completed Plan 31 disable/uninstall-safe suspended-tab survival with signed self-contained `data:` suspended pages and legacy extension-page compatibility detection.
 - 2026-02-26: Completed Plan 18 YAGNI pruning by removing legacy PING messaging, consolidating storage compatibility wrappers into `storage-compat.ts`, and minimizing background `__testing` surface.
+- 2026-02-26: Completed Plan 19 DRY consolidation by centralizing captured-time formatting and suspended-title truncation constants with parity tests.
+- 2026-02-26: Completed Plan 20 performance opportunities by removing repeated suspend-path URL parsing, optimizing activity persistence snapshots, and adding keyed recovery-list rerender reconciliation.

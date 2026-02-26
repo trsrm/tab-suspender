@@ -37,21 +37,40 @@ export type ActivityRuntime = ReturnType<typeof createActivityRuntime>;
 export function createActivityRuntime(options: ActivityRuntimeOptions) {
   const activityByTabId = new Map<number, TabActivity>();
   const activeTabIdByWindowId = new Map<number, number>();
+  let sortedSnapshotCache: TabActivity[] | null = null;
 
-  function snapshotActivityState(): TabActivity[] {
-    return Array.from(activityByTabId.values())
+  function invalidateSnapshotCache(): void {
+    sortedSnapshotCache = null;
+  }
+
+  function getOrBuildSortedSnapshot(): TabActivity[] {
+    if (sortedSnapshotCache) {
+      return sortedSnapshotCache;
+    }
+
+    sortedSnapshotCache = Array.from(activityByTabId.values())
       .map(cloneActivity)
       .sort((a, b) => a.tabId - b.tabId);
+    return sortedSnapshotCache;
+  }
+
+  function collectPersistableActivityState(): TabActivity[] {
+    return Array.from(activityByTabId.values());
+  }
+
+  function snapshotActivityState(): TabActivity[] {
+    return getOrBuildSortedSnapshot().map(cloneActivity);
   }
 
   async function persistActivitySnapshot(): Promise<void> {
-    await saveActivityToStorage(snapshotActivityState());
+    await saveActivityToStorage(collectPersistableActivityState());
   }
 
   async function hydrateFromStorage(): Promise<void> {
     try {
       const storedActivity = await loadActivityFromStorage();
       activityByTabId.clear();
+      invalidateSnapshotCache();
 
       for (const record of storedActivity) {
         activityByTabId.set(record.tabId, {
@@ -63,6 +82,7 @@ export function createActivityRuntime(options: ActivityRuntimeOptions) {
       }
     } catch (error) {
       activityByTabId.clear();
+      invalidateSnapshotCache();
       options.log("Failed to load activity state from storage. Falling back to empty state.", error);
     }
   }
@@ -94,6 +114,7 @@ export function createActivityRuntime(options: ActivityRuntimeOptions) {
       return false;
     }
 
+    invalidateSnapshotCache();
     const existing = activityByTabId.get(tabId);
     const record = upsertActivity(tabId, windowId, minute);
     const changed =
@@ -117,6 +138,7 @@ export function createActivityRuntime(options: ActivityRuntimeOptions) {
       return false;
     }
 
+    invalidateSnapshotCache();
     const existing = activityByTabId.get(tabId);
     const record = upsertActivity(tabId, windowId, minute);
     const changed =
@@ -197,6 +219,7 @@ export function createActivityRuntime(options: ActivityRuntimeOptions) {
         }
 
         activityByTabId.delete(tabId);
+        invalidateSnapshotCache();
         changed = true;
       }
 
@@ -247,6 +270,7 @@ export function createActivityRuntime(options: ActivityRuntimeOptions) {
   function resetActivityState(): void {
     activityByTabId.clear();
     activeTabIdByWindowId.clear();
+    invalidateSnapshotCache();
   }
 
   return {
@@ -269,10 +293,17 @@ export function createActivityRuntime(options: ActivityRuntimeOptions) {
       activeTabIdByWindowId.set(windowId, tabId);
     },
     deleteActivityForTab(tabId: number): boolean {
-      return activityByTabId.delete(tabId);
+      const didDelete = activityByTabId.delete(tabId);
+
+      if (didDelete) {
+        invalidateSnapshotCache();
+      }
+
+      return didDelete;
     },
     replaceActivityRecord(tabId: number, record: TabActivity): void {
       activityByTabId.set(tabId, record);
+      invalidateSnapshotCache();
     }
   };
 }

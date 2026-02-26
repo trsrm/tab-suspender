@@ -1,97 +1,63 @@
 # Plan 19 - DRY Consolidation Opportunities
 
 ## Status
-Draft
+Implemented
 
 ## Goal
-Eliminate repeated utility logic so storage and formatting behavior are implemented once and reused consistently.
+Reduce maintenance fan-out by centralizing duplicated captured-time formatting and suspended-title truncation limits with no behavior-contract changes.
 
 ## Scope
-- Consolidate repeated store compatibility wrappers.
-- Consolidate duplicated timestamp formatting and title-length constants where appropriate.
+- Consolidate UTC captured-time formatting into a shared utility.
+- Canonicalize suspended-title max length into a shared constant.
 
 ## Non-goals
-- No behavior change in policy evaluation.
-- No storage schema version bump.
-
-## Lens Definition
-DRY here means centralizing repeated logic with stable contracts to reduce bug-fix fan-out.
-
-## Scoring Model
-- `Impact` (1-5)
-- `Effort` (1-5)
-- `Confidence` (1-5)
-- `Priority Score = (Impact * Confidence) - Effort`
-
-## Recommendations
-### D19-1
-- Status note: superseded by Plan 18 implementation (`storage-compat.ts` shared adapter in use).
-- Finding: three storage modules duplicate callback/promise compatibility wrappers.
-- Evidence: `getRuntimeLastError`, `getStorageArea`, `getWithCompatibility`, and `setWithCompatibility` are repeated in:
-  - `extension/src/settings-store.ts`
-  - `extension/src/activity-store.ts`
-  - `extension/src/recovery-store.ts`
-- Risk if unchanged: fixes must be applied in multiple files and can drift.
-- Proposed change: extract shared `storage-compat.ts` with typed `getKey`/`setItems` helpers.
-- Estimated impact: strong maintainability gain and reduced defect risk.
-- Complexity: medium.
-- Dependencies: ensure all store tests continue passing.
-- Rollback: inline helper logic back into each store.
-- Score: Impact 5, Effort 3, Confidence 5, Priority Score 22.
-
-### D19-2
-- Finding: UTC minute display formatting exists in both options and suspended views.
-- Evidence: similar `new Date(minute * 60_000).toISOString().slice(0, 16).replace("T", " ")` formatting appears in `options.ts` and `suspended.ts`.
-- Risk if unchanged: user-facing copy can diverge with future format updates.
-- Proposed change: extract shared formatter utility under `extension/src/time-format.ts`.
-- Estimated impact: moderate consistency gain.
-- Complexity: low.
-- Dependencies: update view tests.
-- Rollback: restore local formatter functions.
-- Score: Impact 3, Effort 1, Confidence 5, Priority Score 14.
-
-### D19-3
-- Finding: title-length constants are repeated across modules with overlapping semantics.
-- Evidence: `MAX_SUSPENDED_TITLE_LENGTH` in `background.ts`, `MAX_TITLE_LENGTH` in `suspended.ts`, and `MAX_RECOVERY_TITLE_LENGTH` in `recovery-store.ts`.
-- Risk if unchanged: silent divergence in truncation behavior.
-- Proposed change: centralize title limits in shared constants module with explicit intent labels.
-- Estimated impact: modest consistency and lower drift risk.
-- Complexity: low.
-- Dependencies: keep tests covering truncation semantics.
-- Rollback: move constants back to module-local definitions.
-- Score: Impact 3, Effort 1, Confidence 4, Priority Score 11.
+- No policy evaluation behavior changes.
+- No storage schema/version changes.
+- No additional storage-compat refactor work (already completed in Plan 18).
 
 ## Implementation Steps
-1. Create shared utility modules for storage compatibility and formatting/constants.
-2. Migrate each consumer module with no behavioral deltas.
-3. Expand/adjust tests where needed to lock shared behavior.
+1. Added `extension/src/time-format.ts` with `formatCapturedAtMinuteUtc(minute)` to preserve existing UTC formatting and fallback text.
+2. Canonicalized `MAX_SUSPENDED_TITLE_LENGTH = 120` in `extension/src/suspended-payload.ts`.
+3. Rewired consumer modules:
+   - `options.ts` now uses shared captured-time formatter.
+   - `suspended.ts` now uses shared captured-time formatter.
+   - `suspended-payload.ts` now uses shared captured-time formatter and shared title constant (with re-export preserved).
+   - `recovery-store.ts` now uses shared title constant for recovery title truncation.
+4. Added targeted formatter parity tests (`tests/time-format.test.mjs`) for valid, invalid/non-finite, and exception fallback cases.
 
-## Files Expected to Change
-- `extension/src/settings-store.ts`
-- `extension/src/activity-store.ts`
-- `extension/src/recovery-store.ts`
+## Files Added/Changed
+- `extension/src/time-format.ts`
 - `extension/src/options.ts`
 - `extension/src/suspended.ts`
-- `extension/src/background.ts`
-- `extension/src/storage-compat.ts` (new)
-- `extension/src/time-format.ts` (new)
-- `extension/src/constants.ts` (new)
-- `tests/*`
-- `docs/architecture.md`
+- `extension/src/suspended-payload.ts`
+- `extension/src/recovery-store.ts`
+- `tests/time-format.test.mjs`
 - `docs/plans/plan-19-dry-consolidation-opportunities.md`
 - `ROADMAP.md`
 
-## Test/Evidence Expectations
-- `npm run typecheck`
-- `npm run test`
-- Targeted assertions for storage adapter compatibility and timestamp/title formatting.
+## Tests/Evidence
+- Command: `npm run typecheck`
+  - Result: passed.
+- Command: `npm run test`
+  - Result: passed (83 tests, 0 failures).
 
 ## Exit Criteria
-- Shared helper modules replace duplicated logic.
-- No runtime behavior regressions.
+- No duplicated captured-time formatter implementations remain in source modules.
+- Suspended-title max length is canonicalized via a shared constant.
+- Automated checks pass with no regressions.
 
 ## Rollback
-- Revert Plan 19 files and rerun full tests.
+- Revert Plan 19-touched files listed above.
+- Re-run `npm run typecheck` and `npm run test` to verify baseline restoration.
 
-## Risks Left
-- Over-consolidation can hide domain intent; helper naming must preserve clarity.
+## Decisions
+- Kept string outputs exactly aligned with prior behavior:
+  - `Captured at YYYY-MM-DD HH:MM UTC.`
+  - `Capture time unavailable.`
+  - `Captured at minute <value>.`
+- Kept canonical truncation limit at `120` and reused it for suspended/recovery title sanitization.
+- Preserved existing `suspended-payload.ts` export contract for `MAX_SUSPENDED_TITLE_LENGTH` and reused it in recovery title sanitization.
+
+## Retrospective
+- What changed: shared utility/constant now cover all duplicated timestamp/title-limit logic targeted by remaining Plan 19 DRY scope.
+- Risks left: low; future title-limit divergence risk remains possible only if new module-local constants are introduced without reusing shared modules.

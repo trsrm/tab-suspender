@@ -79,6 +79,7 @@ export interface PolicyEvaluatorInput {
   settings: Settings;
   nowMinute: number;
   flags?: {
+    internalUrl?: boolean;
     excludedHost?: boolean;
     urlTooLong?: boolean;
   };

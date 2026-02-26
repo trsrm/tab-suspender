@@ -10,6 +10,7 @@ import {
 import { normalizeExcludedHostEntries } from "./matcher.js";
 import type { Settings } from "./types.js";
 import { loadRecoveryFromStorage } from "./recovery-store.js";
+import { formatCapturedAtMinuteUtc } from "./time-format.js";
 import { validateRestorableUrl } from "./url-safety.js";
 
 export {};
@@ -127,18 +128,7 @@ type RecoveryItem = {
   suspendedAtMinute: number;
 };
 
-function formatCapturedAtMinute(minute: number): string {
-  if (!Number.isFinite(minute) || minute <= 0) {
-    return "Capture time unavailable.";
-  }
-
-  try {
-    const isoMinute = new Date(minute * 60_000).toISOString().slice(0, 16).replace("T", " ");
-    return `Captured at ${isoMinute} UTC.`;
-  } catch {
-    return `Captured at minute ${minute}.`;
-  }
-}
+const recoveryRowsByList = new WeakMap<HTMLElement, Map<string, HTMLElement>>();
 
 function getRecoveryTitle(value: string): string {
   const trimmed = value.trim();
@@ -205,64 +195,87 @@ function createTabWithCompatibility(url: string): Promise<void> {
   });
 }
 
+function createRecoveryRow(elements: OptionsElements, entry: RecoveryItem): HTMLElement {
+  const row = document.createElement("li");
+  row.className = "recovery-item";
+
+  const details = document.createElement("div");
+  details.className = "recovery-item-details";
+
+  const title = document.createElement("p");
+  title.className = "recovery-item-title";
+  title.textContent = getRecoveryTitle(entry.title);
+  details.appendChild(title);
+
+  const urlEl = document.createElement("p");
+  urlEl.className = "recovery-item-url";
+  urlEl.textContent = entry.url;
+  urlEl.title = entry.url;
+  details.appendChild(urlEl);
+
+  const capturedAt = document.createElement("p");
+  capturedAt.className = "recovery-item-captured";
+  capturedAt.textContent = formatCapturedAtMinuteUtc(entry.suspendedAtMinute);
+  details.appendChild(capturedAt);
+
+  const reopenButton = document.createElement("button");
+  reopenButton.type = "button";
+  reopenButton.textContent = "Reopen";
+
+  const validation = validateRestorableUrl(entry.url);
+  if (!validation.ok) {
+    reopenButton.disabled = true;
+    reopenButton.title = "URL is no longer eligible for restore.";
+  } else {
+    reopenButton.addEventListener("click", () => {
+      reopenButton.disabled = true;
+      void createTabWithCompatibility(validation.url)
+        .then(() => {
+          setStatus(elements, "Reopened suspended tab in a new tab.");
+        })
+        .catch(() => {
+          setStatus(elements, "Failed to reopen suspended tab.");
+          reopenButton.disabled = false;
+        });
+    });
+  }
+
+  row.appendChild(details);
+  row.appendChild(reopenButton);
+  return row;
+}
+
+function buildRecoveryEntryKey(entry: RecoveryItem, duplicateOrdinal: number): string {
+  return `${entry.url}\n${entry.title}\n${entry.suspendedAtMinute}\n${duplicateOrdinal}`;
+}
+
 function renderRecoveryList(elements: OptionsElements, entries: RecoveryItem[]): void {
   if (entries.length === 0) {
     elements.recoveryList.replaceChildren();
+    recoveryRowsByList.set(elements.recoveryList, new Map<string, HTMLElement>());
     setRecoveryEmpty(elements, "No recently suspended tabs yet.", false);
     return;
   }
 
-  const rows: HTMLElement[] = entries.map((entry) => {
-    const row = document.createElement("li");
-    row.className = "recovery-item";
+  const previousRowsByKey = recoveryRowsByList.get(elements.recoveryList) ?? new Map<string, HTMLElement>();
+  const nextRowsByKey = new Map<string, HTMLElement>();
+  const duplicateCounts = new Map<string, number>();
+  const rows: HTMLElement[] = [];
 
-    const details = document.createElement("div");
-    details.className = "recovery-item-details";
+  for (const entry of entries) {
+    const baseKey = `${entry.url}\n${entry.title}\n${entry.suspendedAtMinute}`;
+    const duplicateOrdinal = duplicateCounts.get(baseKey) ?? 0;
+    duplicateCounts.set(baseKey, duplicateOrdinal + 1);
+    const key = buildRecoveryEntryKey(entry, duplicateOrdinal);
+    const existingRow = previousRowsByKey.get(key);
+    const row = existingRow ?? createRecoveryRow(elements, entry);
 
-    const title = document.createElement("p");
-    title.className = "recovery-item-title";
-    title.textContent = getRecoveryTitle(entry.title);
-    details.appendChild(title);
-
-    const urlEl = document.createElement("p");
-    urlEl.className = "recovery-item-url";
-    urlEl.textContent = entry.url;
-    urlEl.title = entry.url;
-    details.appendChild(urlEl);
-
-    const capturedAt = document.createElement("p");
-    capturedAt.className = "recovery-item-captured";
-    capturedAt.textContent = formatCapturedAtMinute(entry.suspendedAtMinute);
-    details.appendChild(capturedAt);
-
-    const reopenButton = document.createElement("button");
-    reopenButton.type = "button";
-    reopenButton.textContent = "Reopen";
-
-    const validation = validateRestorableUrl(entry.url);
-    if (!validation.ok) {
-      reopenButton.disabled = true;
-      reopenButton.title = "URL is no longer eligible for restore.";
-    } else {
-      reopenButton.addEventListener("click", () => {
-        reopenButton.disabled = true;
-        void createTabWithCompatibility(validation.url)
-          .then(() => {
-            setStatus(elements, "Reopened suspended tab in a new tab.");
-          })
-          .catch(() => {
-            setStatus(elements, "Failed to reopen suspended tab.");
-            reopenButton.disabled = false;
-          });
-      });
-    }
-
-    row.appendChild(details);
-    row.appendChild(reopenButton);
-    return row;
-  });
+    nextRowsByKey.set(key, row);
+    rows.push(row);
+  }
 
   elements.recoveryList.replaceChildren(...rows);
+  recoveryRowsByList.set(elements.recoveryList, nextRowsByKey);
   setRecoveryEmpty(elements, "", true);
 }
 
@@ -357,5 +370,9 @@ async function initializeOptionsPage(): Promise<void> {
   wireFormSubmission(elements);
   await Promise.all([loadAndRenderSettings(elements), loadAndRenderRecovery(elements)]);
 }
+
+export const __testing = {
+  renderRecoveryList
+};
 
 void initializeOptionsPage();

@@ -1,91 +1,88 @@
 # Plan 20 - Performance Opportunities
 
 ## Status
-Draft
+Implemented
 
 ## Goal
-Reduce unnecessary CPU and allocation overhead in steady-state background and UI pathways while preserving existing behavior.
+Reduce recurring CPU/allocation overhead in background suspend evaluation, activity persistence, and options recovery rendering while preserving existing behavior contracts.
 
 ## Scope
-- Focus on local CPU/allocation hotspots and query efficiency.
-- Preserve Plan 15 adaptive sweep semantics.
+- P20-1: Single-pass URL analysis in suspend evaluation paths.
+- P20-2: Persistence-oriented activity snapshot path with deterministic storage ordering preserved.
+- P20-3: Keyed recovery-list reconciliation in options UI.
 
 ## Non-goals
 - No policy model redesign.
-- No new user-facing settings.
-
-## Lens Definition
-Performance here means lowering recurring compute and memory overhead on common runtime paths.
-
-## Scoring Model
-- `Impact` (1-5)
-- `Effort` (1-5)
-- `Confidence` (1-5)
-- `Priority Score = (Impact * Confidence) - Effort`
-
-## Recommendations
-### P20-1
-- Finding: exclusion matching reparses URLs for each candidate tab during every sweep.
-- Evidence: `isExcludedUrlByHost` performs `new URL(url)` inside sweep evaluation path.
-- Risk if unchanged: unnecessary parsing overhead scales with tab count.
-- Proposed change: parse URL once in sweep pipeline and pass hostname/protocol into policy flags.
-- Estimated impact: medium CPU reduction under high tab counts.
-- Complexity: medium.
-- Dependencies: policy input shape update and tests.
-- Rollback: restore current URL parsing inside matcher helper.
-- Score: Impact 4, Effort 3, Confidence 4, Priority Score 13.
-
-### P20-2
-- Finding: activity snapshot sorting runs on each persistence write regardless of changed tab count.
-- Evidence: `snapshotActivityState()` maps and sorts all records before writes.
-- Risk if unchanged: avoidable allocation/sort overhead with large activity maps.
-- Proposed change: evaluate incremental persistence strategy or deferred sorting only at write boundaries that need deterministic order.
-- Estimated impact: moderate background CPU/GC reduction.
-- Complexity: medium.
-- Dependencies: keep deterministic persistence assertions in tests.
-- Rollback: restore current full-snapshot sort strategy.
-- Score: Impact 3, Effort 3, Confidence 3, Priority Score 6.
-
-### P20-3
-- Finding: options recovery list fully rerenders all rows in one pass.
-- Evidence: `renderRecoveryList` rebuilds and replaces child nodes for entire list.
-- Risk if unchanged: minor UI jank when recovery list reaches max size.
-- Proposed change: apply keyed row updates or fragment diffing for incremental updates.
-- Estimated impact: low-to-medium UI responsiveness gain.
-- Complexity: medium.
-- Dependencies: settings UI tests.
-- Rollback: restore full replaceChildren rendering.
-- Score: Impact 2, Effort 3, Confidence 3, Priority Score 3.
+- No user-facing settings changes.
+- No storage schema/version changes.
 
 ## Implementation Steps
-1. Profile/measure current hotspots in synthetic local scenarios.
-2. Implement one optimization at a time with regression tests.
-3. Validate no policy, recovery, or settings behavior drift.
+1. Added metadata-capable URL validation helper and reused it from suspend-runner for one-pass URL analysis.
+2. Updated policy input flags to include `internalUrl` and made evaluator prefer the precomputed flag while keeping URL-based fallback behavior.
+3. Refactored suspend-runner to derive `internalUrl`, `urlTooLong`, `excludedHost`, and `restorableUrl` from one URL-analysis pass; reused analyzed URL for payload creation.
+4. Split activity snapshot responsibilities in `activity-runtime`:
+   - kept sorted/cloned diagnostic snapshots for tests/debug.
+   - switched persistence writes to an unsorted collection path and relied on `activity-store` sanitize/sort for deterministic storage ordering.
+   - added sorted snapshot cache invalidation on activity mutations.
+5. Replaced full recovery list rebuild path in options with keyed reconciliation:
+   - stable key built from `(url, title, suspendedAtMinute, duplicateOrdinal)`.
+   - unchanged rows are reused; changed rows are replaced.
+6. Added/updated tests for policy flag behavior, URL metadata validation, deterministic persisted activity ordering, and recovery row reuse behavior.
 
-## Files Expected to Change
-- `extension/src/background.ts`
-- `extension/src/matcher.ts`
-- `extension/src/policy.ts`
-- `extension/src/options.ts`
+## Files Added/Changed
 - `extension/src/types.ts`
-- `tests/suspend-action.test.mjs`
+- `extension/src/url-safety.ts`
+- `extension/src/policy.ts`
+- `extension/src/background/suspend-runner.ts`
+- `extension/src/background/activity-runtime.ts`
+- `extension/src/options.ts`
+- `tests/policy-engine.test.mjs`
+- `tests/restore-flow.test.mjs`
 - `tests/background-event-wiring.test.mjs`
 - `tests/settings-ui.test.mjs`
-- `docs/architecture.md`
 - `docs/plans/plan-20-performance-opportunities.md`
 - `ROADMAP.md`
 
-## Test/Evidence Expectations
-- `npm run build`
-- `npm run test`
-- Add targeted micro-benchmark assertions where deterministic.
+## Tests/Evidence
+- Command: `npm run build`
+  - Result: passed (`tsc -p tsconfig.json && node scripts/copy-extension-assets.mjs`).
+- Command: `npm run test`
+  - Result: passed (87 tests, 0 failures).
+- Command: `npm run typecheck`
+  - Result: passed (`tsc -p tsconfig.json --noEmit`).
 
 ## Exit Criteria
-- At least one high-priority hotspot is optimized with measurable local improvement.
-- Existing behavior and safety guardrails remain unchanged.
+- Suspend evaluation now uses a single URL parse per candidate evaluation path.
+- Policy reason precedence and action-click bypass semantics are unchanged.
+- Persisted `activityState` remains deterministic and schema-compatible.
+- Recovery list rerender reuses unchanged rows.
+- Build/test/typecheck all pass.
 
 ## Rollback
-- Revert Plan 20 files and rerun tests.
+- Revert Plan 20 changes in:
+  - `extension/src/types.ts`
+  - `extension/src/url-safety.ts`
+  - `extension/src/policy.ts`
+  - `extension/src/background/suspend-runner.ts`
+  - `extension/src/background/activity-runtime.ts`
+  - `extension/src/options.ts`
+  - `tests/policy-engine.test.mjs`
+  - `tests/restore-flow.test.mjs`
+  - `tests/background-event-wiring.test.mjs`
+  - `tests/settings-ui.test.mjs`
+  - `docs/plans/plan-20-performance-opportunities.md`
+  - `ROADMAP.md`
+- Re-run `npm run build` and `npm run test`.
+
+## Decisions
+- Precompute URL-derived policy flags in suspend-runner and pass them into policy evaluator to avoid repeated URL parsing.
+- Keep `validateRestorableUrl()` API unchanged and add `validateRestorableUrlWithMetadata()` for internal reuse.
+- Preserve deterministic persisted activity ordering by relying on existing `activity-store` sanitization/sort contract.
+- Use keyed row reconciliation in options recovery UI without changing user-visible copy or controls.
 
 ## Risks Left
-- Safari runtime characteristics may differ from Node tests; manual profiling remains necessary.
+- Runtime performance improvements are validated structurally and by behavior invariants; Safari-specific CPU profiling is still recommended for empirical measurement under large real-world tab sets.
+
+## Retrospective
+- What changed: repeated URL parsing and full-list rerender churn were removed from hot paths, and persistence writes avoid unnecessary sort/clone work.
+- Risks left: options reconciliation assumes key stability from sanitized recovery entries and should be rechecked if recovery entry shape changes in future plans.

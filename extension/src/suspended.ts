@@ -1,7 +1,7 @@
 import { decodeSuspendPayloadFromSearchParams, MAX_SUSPENDED_TITLE_LENGTH } from "./suspended-payload.js";
+import { formatCapturedAtMinuteUtc } from "./time-format.js";
 import { validateRestorableUrl } from "./url-safety.js";
 
-const MINUTE_MS = 60_000;
 const MAX_DOCUMENT_TITLE_LENGTH = 80;
 const DEFAULT_TITLE = "Suspended tab";
 const URL_UNAVAILABLE_TEXT = "Original URL is unavailable.";
@@ -36,19 +36,6 @@ function getDisplayUrl(url: string, restorableUrl: string | null): string {
   }
 
   return trimmedUrl;
-}
-
-function formatCapturedAt(ts: number): string {
-  if (!Number.isFinite(ts) || ts <= 0) {
-    return "Capture time unavailable.";
-  }
-
-  try {
-    const isoMinute = new Date(ts * MINUTE_MS).toISOString().slice(0, 16).replace("T", " ");
-    return `Captured at ${isoMinute} UTC.`;
-  } catch {
-    return `Captured at minute ${ts}.`;
-  }
 }
 
 function getInvalidPayloadStatus(reason: "missing" | "tooLong" | "invalidProtocol" | "invalidUrl"): string {
@@ -97,7 +84,7 @@ if (originalUrlEl) {
 }
 
 if (capturedAtEl) {
-  capturedAtEl.textContent = formatCapturedAt(payload.ts);
+  capturedAtEl.textContent = formatCapturedAtMinuteUtc(payload.ts);
 }
 
 if (statusEl) {

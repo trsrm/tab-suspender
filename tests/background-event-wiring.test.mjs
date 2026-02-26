@@ -432,6 +432,45 @@ test("activity persistence coalesces burst updates into a single queued storage 
   assert.equal(writesAfter, writesBefore + 1);
 });
 
+test("persisted activity snapshot remains sorted by tabId", { concurrency: false }, async () => {
+  setNowMinute(310);
+
+  const { events, calls, backgroundModule } = await importBackgroundWithMock();
+  await backgroundModule.__testing.waitForRuntimeReady();
+  backgroundModule.__testing.resetActivityState();
+  await backgroundModule.__testing.flushPersistedActivityWrites();
+
+  events.tabsOnActivated.dispatch({ tabId: 50, windowId: 5000 });
+  events.tabsOnActivated.dispatch({ tabId: 3, windowId: 3000 });
+  events.tabsOnActivated.dispatch({ tabId: 15, windowId: 1500 });
+
+  await backgroundModule.__testing.flushPersistedActivityWrites();
+
+  assert.deepEqual(calls.storageData[ACTIVITY_STORAGE_KEY], {
+    schemaVersion: 1,
+    activity: [
+      {
+        tabId: 3,
+        windowId: 3000,
+        lastActiveAtMinute: 310,
+        lastUpdatedAtMinute: 310
+      },
+      {
+        tabId: 15,
+        windowId: 1500,
+        lastActiveAtMinute: 310,
+        lastUpdatedAtMinute: 310
+      },
+      {
+        tabId: 50,
+        windowId: 5000,
+        lastActiveAtMinute: 310,
+        lastUpdatedAtMinute: 310
+      }
+    ]
+  });
+});
+
 test.afterEach(() => {
   restoreBackgroundGlobals();
 });

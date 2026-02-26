@@ -1,4 +1,5 @@
 import type { RecoveryEntry, RecoverySchemaVersion, StoredRecoveryStateV1 } from "./types.js";
+import { MAX_SUSPENDED_TITLE_LENGTH } from "./suspended-payload.js";
 import { MAX_RESTORABLE_URL_LENGTH, validateRestorableUrl } from "./url-safety.js";
 import {
   getKeyWithCompatibility,
@@ -10,7 +11,6 @@ import {
 export const RECOVERY_STORAGE_KEY = "recoveryState";
 export const RECOVERY_SCHEMA_VERSION: RecoverySchemaVersion = 1;
 export const MAX_RECOVERY_ENTRIES = 100;
-const MAX_RECOVERY_TITLE_LENGTH = 120;
 
 function cloneEntry(entry: RecoveryEntry): RecoveryEntry {
   return {
@@ -31,7 +31,9 @@ function sanitizeEntry(value: unknown): RecoveryEntry | null {
     return null;
   }
 
-  const normalizedTitle = typeof source.title === "string" ? source.title.trim().slice(0, MAX_RECOVERY_TITLE_LENGTH) : "";
+  const normalizedTitle = typeof source.title === "string"
+    ? source.title.trim().slice(0, MAX_SUSPENDED_TITLE_LENGTH)
+    : "";
   const rawUrl = typeof source.url === "string" ? source.url : "";
   const normalizedUrl = rawUrl.trim().slice(0, MAX_RESTORABLE_URL_LENGTH);
   const validation = validateRestorableUrl(normalizedUrl);

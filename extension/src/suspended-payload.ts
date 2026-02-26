@@ -1,4 +1,5 @@
 import type { DecodedSuspendPayload, SuspendPayload, SuspendedPageFormat } from "./types.js";
+import { formatCapturedAtMinuteUtc } from "./time-format.js";
 import { validateRestorableUrl } from "./url-safety.js";
 
 export const MAX_SUSPENDED_TITLE_LENGTH = 120;
@@ -147,19 +148,6 @@ function escapeHtml(text: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function formatCapturedAt(ts: number): string {
-  if (!Number.isFinite(ts) || ts <= 0) {
-    return "Capture time unavailable.";
-  }
-
-  try {
-    const isoMinute = new Date(ts * 60_000).toISOString().slice(0, 16).replace("T", " ");
-    return `Captured at ${isoMinute} UTC.`;
-  } catch {
-    return `Captured at minute ${ts}.`;
-  }
-}
-
 function getInvalidPayloadStatus(reason: "missing" | "tooLong" | "invalidProtocol" | "invalidUrl"): string {
   switch (reason) {
     case "missing":
@@ -178,7 +166,7 @@ export function buildSuspendedDataUrl(payload: SuspendPayload): string {
   const pageTitle = payload.t.length > 0 ? payload.t : "Suspended tab";
   const documentTitle = pageTitle.slice(0, 80);
   const displayUrl = validation.ok ? validation.url : payload.u.trim().length > 0 ? payload.u.trim() : "Original URL is unavailable.";
-  const capturedAtText = formatCapturedAt(payload.ts);
+  const capturedAtText = formatCapturedAtMinuteUtc(payload.ts);
   const statusText = validation.ok ? "Ready to restore this tab." : getInvalidPayloadStatus(validation.reason);
   const escapedTitle = escapeHtml(pageTitle);
   const escapedDocumentTitle = escapeHtml(documentTitle);

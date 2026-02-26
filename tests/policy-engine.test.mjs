@@ -130,6 +130,17 @@ test("precedence: internalUrl dominates urlTooLong and excludedHost flags", () =
   assert.deepEqual(decision, { shouldSuspend: false, reason: "internalUrl" });
 });
 
+test("internalUrl flag is honored without re-parsing tab url", () => {
+  const decision = evaluateSuspendDecision(
+    createInput({
+      tab: { url: "https://example.com/valid" },
+      flags: { internalUrl: true, urlTooLong: false, excludedHost: false }
+    })
+  );
+
+  assert.deepEqual(decision, { shouldSuspend: false, reason: "internalUrl" });
+});
+
 test("idle boundary: exact threshold is eligible, one minute below is not", () => {
   const exactlyAtThreshold = evaluateSuspendDecision(
     createInput({

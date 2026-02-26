@@ -18,6 +18,14 @@ function shouldSkipExcludedHost(input: PolicyEvaluatorInput): boolean {
   return input.flags?.excludedHost === true;
 }
 
+function shouldSkipInternalUrl(input: PolicyEvaluatorInput): boolean {
+  if (typeof input.flags?.internalUrl === "boolean") {
+    return input.flags.internalUrl;
+  }
+
+  return isInternalUrl(input.tab.url);
+}
+
 function getReferenceMinute(input: PolicyEvaluatorInput): number | null {
   if (!input.activity) {
     return null;
@@ -56,7 +64,7 @@ export function evaluateSuspendDecision(input: PolicyEvaluatorInput): SuspendDec
     return { shouldSuspend: false, reason: "audible" };
   }
 
-  if (isInternalUrl(input.tab.url)) {
+  if (shouldSkipInternalUrl(input)) {
     return { shouldSuspend: false, reason: "internalUrl" };
   }
 
