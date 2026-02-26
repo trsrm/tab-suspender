@@ -2,16 +2,22 @@
 
 All notable user-facing changes are documented in this file.
 
-Current release: **1.1.1**
+Current release: **1.1.2**
+
+## [1.1.2] - 2026-02-26
+- Refactored background runtime into focused internal modules while preserving runtime behavior.
+- Split monolithic runtime responsibilities into `runtime-bootstrap`, `activity-runtime`, `persist-queue`, `sweep-coordinator`, and `suspend-runner`.
+- Replaced duplicated activity/recovery persistence queue logic with a shared queued-persist helper.
+- Added explicit sweep coordinator ownership for cadence gating and in-flight/pending sweep coalescing.
 
 ## [1.1.1] - 2026-02-26
-- Plan 31: switched suspended tabs to signed self-contained `data:` pages so suspended tabs survive extension disable/uninstall.
+- Switched suspended tabs to signed self-contained `data:` pages so suspended tabs survive extension disable/uninstall.
 - Added legacy compatibility handling for existing `safari-extension://.../suspended.html?...` suspended tabs to avoid re-suspension churn.
 - Updated data-page restore UX to work without JavaScript execution (static restore link + pre-rendered URL/status) for Safari reliability.
 - Added regression coverage for data-page payload round-trip, suspended-page detection, and mixed legacy/data suspended tab skip behavior.
 
 ## [1.1.0] - 2026-02-26
-- Plan 32: migrated idle timeout UX from minutes to hours (`1..720`) while keeping minute-based storage compatibility.
+- Migrated idle timeout UX from minutes to hours (`1..720`) while keeping minute-based storage compatibility.
 - Raised default idle timeout to 24 hours and expanded maximum configurable timeout to 720 hours.
 - Scaled suspend sweep cadence for long-idle profiles with a `1..30` minute effective interval to reduce CPU usage.
 - Added/updated regression coverage for hours-based settings validation, long-idle cadence behavior, and compatibility paths.

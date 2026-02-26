@@ -67,7 +67,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 14: Reload-safe recovery ledger + options reopen flow ([details](docs/plans/plan-14-reload-safe-recovery.md))
 - [x] Plan 15: Safari CPU reduction via adaptive sweep cadence + candidate filtering ([details](docs/plans/plan-15-safari-cpu-reduction.md))
 - [x] Plan 16: Installable Safari packaging baseline (in-repo Xcode wrapper + sync workflow) ([details](docs/plans/plan-16-installable-safari-packaging-baseline.md))
-- [ ] Plan 17: (draft) KISS simplification opportunities ([details](docs/plans/plan-17-kiss-simplification-opportunities.md))
+- [x] Plan 17: KISS refactor of background runtime (modularization + shared persist queue + sweep coordinator) ([details](docs/plans/plan-17-kiss-simplification-opportunities.md))
 - [ ] Plan 18: (draft) YAGNI pruning opportunities ([details](docs/plans/plan-18-yagni-pruning-opportunities.md))
 - [ ] Plan 19: (draft) DRY consolidation opportunities ([details](docs/plans/plan-19-dry-consolidation-opportunities.md))
 - [ ] Plan 20: (draft) Performance opportunities ([details](docs/plans/plan-20-performance-opportunities.md))
@@ -168,6 +168,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-023**: Suspended tabs now navigate to a signed self-contained `data:text/html` document, while legacy `safari-extension://.../suspended.html?...` payload tabs remain backward-compatible.
   - Alternatives: keep extension-page suspension only, or support user-selectable dual-format suspension.
   - Impact: suspended tabs survive extension disable/uninstall without changing URL safety guardrails or recovery storage schema.
+- **D-024**: Background runtime internals are modularized into dedicated components (`runtime-bootstrap`, `activity-runtime`, `persist-queue`, `sweep-coordinator`, `suspend-runner`) with `background.ts` as composition root and no behavior-contract changes.
+  - Alternatives: keep single-file runtime orchestration, or perform behavior-changing refactor alongside module split.
+  - Impact: lower coupling and clearer ownership boundaries for future maintenance while preserving existing suspend and persistence semantics.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -187,6 +190,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-26: Completed Plan 14 reload-safe recovery with versioned suspended-tab recovery storage, options-based reopen UI, and regression coverage for recovery persistence/failure handling.
 - 2026-02-26: Completed Plan 15 Safari CPU reduction with adaptive sweep cadence gating, filtered sweep candidate queries with fallback, and suspended-page self-churn avoidance.
 - 2026-02-26: Completed Plan 16 installable Safari packaging baseline with committed Xcode wrapper scaffolding and build-to-wrapper resource sync workflow.
+- 2026-02-26: Completed Plan 17 KISS runtime refactor with modular background internals, shared persist queue helper, and sweep coordinator extraction without behavior-contract changes.
 - 2026-02-26: Completed Plan 11 analysis-only multi-lens review and generated draft Plans 17-24 with standardized scoring/rubric metadata.
 - 2026-02-26: Completed Plan 12 feature discovery analysis and generated draft Plans 25-30 for user-facing capability expansion without runtime changes.
 - 2026-02-26: Completed Plan 32 long-idle hours UX with minute-compatible storage, 24-hour default timeout, and 30-minute max sweep cadence scaling.

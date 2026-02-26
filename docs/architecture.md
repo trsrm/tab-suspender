@@ -5,7 +5,17 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 
 ## Runtime Components
 - `extension/src/background.ts`
-  - Owns activity tracking, settings hydration, alarm scheduling, sweep evaluation, and suspend navigation.
+  - Composition root: wires listeners, runtime gates, persistence queues, and internal background modules.
+- `extension/src/background/runtime-bootstrap.ts`
+  - Startup hydration/prune/seed orchestration for deterministic runtime readiness.
+- `extension/src/background/activity-runtime.ts`
+  - Activity state ownership and tab/window activity mutation helpers.
+- `extension/src/background/persist-queue.ts`
+  - Generic queued dirty-loop persistence helper used by activity and recovery snapshots.
+- `extension/src/background/sweep-coordinator.ts`
+  - Encapsulates sweep due-minute cadence and in-flight/pending coalescing.
+- `extension/src/background/suspend-runner.ts`
+  - Suspend sweep/action execution, policy input shaping, URL payload encode/decode, and filtered-query fallback.
 - `extension/src/policy.ts`
   - Pure policy evaluator with deterministic precedence and reason output.
 - `extension/src/settings-store.ts`
@@ -33,7 +43,8 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 
 ## Data Flow
 1. Extension startup
-- `background.ts` schedules sweep alarm, hydrates settings and activity state from storage, prunes stale records, and seeds currently active tabs.
+- `background.ts` schedules sweep alarm and initializes runtime via `runtime-bootstrap`.
+- `runtime-bootstrap` hydrates settings/activity/recovery, prunes stale activity, seeds active tabs, and sets initial sweep due minute.
 - Settings are hydrated from `chrome.storage.local["settings"]`.
 - Activity state is hydrated from `chrome.storage.local["activityState"]`.
 2. Activity capture

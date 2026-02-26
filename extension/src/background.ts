@@ -1,35 +1,18 @@
-import { evaluateSuspendDecision } from "./policy.js";
-import type { DecodedSuspendPayload, PolicyEvaluatorInput, RecoveryEntry, Settings, SuspendPayload, TabActivity } from "./types.js";
-import { validateRestorableUrl } from "./url-safety.js";
+import type { DecodedSuspendPayload, RecoveryEntry, Settings, SuspendPayload, TabActivity } from "./types.js";
 import { DEFAULT_SETTINGS, SETTINGS_STORAGE_KEY, decodeStoredSettings, loadSettingsFromStorage } from "./settings-store.js";
-import { isExcludedUrlByHost } from "./matcher.js";
-import { loadActivityFromStorage, saveActivityToStorage } from "./activity-store.js";
-import { loadRecoveryFromStorage, MAX_RECOVERY_ENTRIES, saveRecoveryToStorage } from "./recovery-store.js";
-import {
-  buildSuspendedDataUrl,
-  decodeLegacySuspendPayloadFromUrl,
-  decodeSuspendPayloadFromDataUrl,
-  isSuspendedDataUrl as isGeneratedSuspendedDataUrl,
-  sanitizeSuspendedTitle
-} from "./suspended-payload.js";
+import { loadRecoveryFromStorage, saveRecoveryToStorage } from "./recovery-store.js";
+import { isSuspendedDataUrl as isGeneratedSuspendedDataUrl } from "./suspended-payload.js";
+import { createPersistQueue } from "./background/persist-queue.js";
+import { createSweepCoordinator } from "./background/sweep-coordinator.js";
+import { initializeRuntimeState as bootstrapRuntimeState } from "./background/runtime-bootstrap.js";
+import { createActivityRuntime, isValidId } from "./background/activity-runtime.js";
+import type { QueryTab } from "./background/activity-runtime.js";
+import { createSuspendRunner, computeSweepIntervalMinutes, decodeSuspendedTabPayload, encodeSuspendedUrl } from "./background/suspend-runner.js";
 
 const LOG_PREFIX = "[tab-suspender]";
 const MINUTE_MS = 60_000;
-const WINDOW_ID_NONE = -1;
 const SUSPEND_SWEEP_ALARM = "suspend-sweep-v1";
 const SUSPEND_SWEEP_PERIOD_MINUTES = 1;
-const MAX_SWEEP_INTERVAL_MINUTES = 30;
-const MIN_SWEEP_INTERVAL_MINUTES = 1;
-
-type QueryTab = {
-  id?: number;
-  windowId?: number;
-  active?: boolean;
-  pinned?: boolean;
-  audible?: boolean;
-  url?: string;
-  title?: string;
-};
 
 type ActivatedInfo = {
   tabId: number;
@@ -50,35 +33,12 @@ type TabUpdatedChangeInfo = {
   url?: string;
 };
 
-type SuspendEvaluationOptions = {
-  ignoreActive?: boolean;
-  forceTimeoutReached?: boolean;
-};
-
-const activityByTabId = new Map<number, TabActivity>();
-const activeTabIdByWindowId = new Map<number, number>();
 let recoveryEntries: RecoveryEntry[] = [];
 let focusedWindowId: number | null = null;
-let currentSettings: Settings = {
-  idleMinutes: DEFAULT_SETTINGS.idleMinutes,
-  excludedHosts: [...DEFAULT_SETTINGS.excludedHosts],
-  skipPinned: DEFAULT_SETTINGS.skipPinned,
-  skipAudible: DEFAULT_SETTINGS.skipAudible
-};
-// Suspension paths wait on this gate so sweeps and action-click use hydrated settings/activity state.
+let currentSettings: Settings = cloneSettings(DEFAULT_SETTINGS);
 let settingsReady: Promise<void> = Promise.resolve();
 let activityReady: Promise<void> = Promise.resolve();
 let runtimeReady: Promise<void> = Promise.resolve();
-let activityPersistQueue: Promise<void> = Promise.resolve();
-let recoveryPersistQueue: Promise<void> = Promise.resolve();
-let activityPersistScheduled = false;
-let recoveryPersistScheduled = false;
-let activityPersistDirty = false;
-let recoveryPersistDirty = false;
-let nextSweepDueMinute = 0;
-let hasLoggedFilteredSweepQueryFailure = false;
-let sweepInFlight: Promise<void> | null = null;
-let pendingSweepMinute: number | null = null;
 
 function log(message: string, details?: unknown): void {
   if (details === undefined) {
@@ -93,10 +53,6 @@ function getCurrentEpochMinute(): number {
   return Math.floor(Date.now() / MINUTE_MS);
 }
 
-function isValidId(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0;
-}
-
 function cloneSettings(settings: Settings): Settings {
   return {
     idleMinutes: settings.idleMinutes,
@@ -104,302 +60,6 @@ function cloneSettings(settings: Settings): Settings {
     skipPinned: settings.skipPinned,
     skipAudible: settings.skipAudible
   };
-}
-
-function cloneActivity(activity: TabActivity): TabActivity {
-  return {
-    tabId: activity.tabId,
-    windowId: activity.windowId,
-    lastActiveAtMinute: activity.lastActiveAtMinute,
-    lastUpdatedAtMinute: activity.lastUpdatedAtMinute
-  };
-}
-
-function snapshotActivityState(): TabActivity[] {
-  return Array.from(activityByTabId.values())
-    .map(cloneActivity)
-    .sort((a, b) => a.tabId - b.tabId);
-}
-
-async function persistActivitySnapshot(): Promise<void> {
-  await saveActivityToStorage(snapshotActivityState());
-}
-
-function snapshotRecoveryState(): RecoveryEntry[] {
-  return recoveryEntries.map((entry) => ({
-    url: entry.url,
-    title: entry.title,
-    suspendedAtMinute: entry.suspendedAtMinute
-  }));
-}
-
-async function persistRecoverySnapshot(): Promise<void> {
-  const persisted = await saveRecoveryToStorage(snapshotRecoveryState());
-  recoveryEntries = persisted.entries;
-}
-
-function schedulePersistActivity(): void {
-  activityPersistDirty = true;
-
-  if (activityPersistScheduled) {
-    return;
-  }
-
-  activityPersistScheduled = true;
-  activityPersistQueue = activityPersistQueue
-    .then(async () => {
-      while (activityPersistDirty) {
-        activityPersistDirty = false;
-        await persistActivitySnapshot();
-      }
-    })
-    .catch((error: unknown) => {
-      log("Failed to persist activity snapshot.", error);
-    })
-    .finally(() => {
-      activityPersistScheduled = false;
-
-      if (activityPersistDirty) {
-        schedulePersistActivity();
-      }
-    });
-}
-
-function schedulePersistRecovery(): void {
-  recoveryPersistDirty = true;
-
-  if (recoveryPersistScheduled) {
-    return;
-  }
-
-  recoveryPersistScheduled = true;
-  recoveryPersistQueue = recoveryPersistQueue
-    .then(async () => {
-      while (recoveryPersistDirty) {
-        recoveryPersistDirty = false;
-        await persistRecoverySnapshot();
-      }
-    })
-    .catch((error: unknown) => {
-      log("Failed to persist recovery snapshot.", error);
-    })
-    .finally(() => {
-      recoveryPersistScheduled = false;
-
-      if (recoveryPersistDirty) {
-        schedulePersistRecovery();
-      }
-    });
-}
-
-function applyStoredSettingsValue(value: unknown): void {
-  currentSettings = decodeStoredSettings(value);
-}
-
-function computeSweepIntervalMinutes(settings: Settings): number {
-  const interval = Math.floor(settings.idleMinutes / 120);
-  return Math.min(MAX_SWEEP_INTERVAL_MINUTES, Math.max(MIN_SWEEP_INTERVAL_MINUTES, interval));
-}
-
-function alignSweepCadenceAfterSettingsChange(nowMinute = getCurrentEpochMinute()): void {
-  const interval = computeSweepIntervalMinutes(currentSettings);
-  const candidateDueMinute = nowMinute + interval;
-
-  if (nextSweepDueMinute <= nowMinute || candidateDueMinute < nextSweepDueMinute) {
-    nextSweepDueMinute = candidateDueMinute;
-  }
-}
-
-function buildSuspendSweepQueryInfo(settings: Settings): Record<string, unknown> {
-  const queryInfo: Record<string, unknown> = {
-    active: false
-  };
-
-  if (settings.skipPinned) {
-    queryInfo.pinned = false;
-  }
-
-  if (settings.skipAudible) {
-    queryInfo.audible = false;
-  }
-
-  return queryInfo;
-}
-
-function decodeSuspendedTabPayload(url: string | undefined): DecodedSuspendPayload | null {
-  if (typeof url !== "string" || url.length === 0) {
-    return null;
-  }
-
-  const dataPayload = decodeSuspendPayloadFromDataUrl(url);
-
-  if (dataPayload) {
-    return dataPayload;
-  }
-
-  return decodeLegacySuspendPayloadFromUrl(url);
-}
-
-async function hydrateSettingsFromStorage(): Promise<void> {
-  try {
-    currentSettings = await loadSettingsFromStorage();
-  } catch (error) {
-    currentSettings = cloneSettings(DEFAULT_SETTINGS);
-    log("Failed to load settings from storage. Falling back to defaults.", error);
-  }
-}
-
-async function hydrateActivityFromStorage(): Promise<void> {
-  try {
-    const storedActivity = await loadActivityFromStorage();
-    activityByTabId.clear();
-
-    for (const record of storedActivity) {
-      activityByTabId.set(record.tabId, {
-        tabId: record.tabId,
-        windowId: record.windowId,
-        lastActiveAtMinute: record.lastActiveAtMinute,
-        lastUpdatedAtMinute: record.lastUpdatedAtMinute
-      });
-    }
-  } catch (error) {
-    activityByTabId.clear();
-    log("Failed to load activity state from storage. Falling back to empty state.", error);
-  }
-}
-
-async function hydrateRecoveryFromStorage(): Promise<void> {
-  try {
-    recoveryEntries = await loadRecoveryFromStorage();
-  } catch (error) {
-    recoveryEntries = [];
-    log("Failed to load recovery state from storage. Falling back to empty state.", error);
-  }
-}
-
-function handleStorageSettingsChange(changes: Record<string, StorageChange> | undefined, areaName: string): void {
-  if (areaName !== "local" || !changes) {
-    return;
-  }
-
-  const settingsChange = changes[SETTINGS_STORAGE_KEY];
-
-  if (!settingsChange) {
-    return;
-  }
-
-  applyStoredSettingsValue(settingsChange.newValue);
-  alignSweepCadenceAfterSettingsChange();
-}
-
-function upsertActivity(tabId: number, windowId: number | undefined, minute: number): TabActivity {
-  const existing = activityByTabId.get(tabId);
-
-  if (existing) {
-    if (isValidId(windowId)) {
-      existing.windowId = windowId;
-    }
-
-    return existing;
-  }
-
-  const record: TabActivity = {
-    tabId,
-    windowId: isValidId(windowId) ? windowId : WINDOW_ID_NONE,
-    lastActiveAtMinute: minute,
-    lastUpdatedAtMinute: minute
-  };
-
-  activityByTabId.set(tabId, record);
-  return record;
-}
-
-function markTabActive(tabId: number, windowId: number | undefined, minute = getCurrentEpochMinute()): boolean {
-  if (!isValidId(tabId)) {
-    return false;
-  }
-
-  const existing = activityByTabId.get(tabId);
-  const record = upsertActivity(tabId, windowId, minute);
-  const changed =
-    !existing ||
-    record.lastActiveAtMinute !== minute ||
-    record.lastUpdatedAtMinute !== minute ||
-    (isValidId(windowId) && record.windowId !== windowId);
-
-  record.lastActiveAtMinute = minute;
-  record.lastUpdatedAtMinute = minute;
-
-  if (isValidId(windowId)) {
-    record.windowId = windowId;
-  }
-
-  return changed;
-}
-
-function markTabUpdated(tabId: number, windowId: number | undefined, minute = getCurrentEpochMinute()): boolean {
-  if (!isValidId(tabId)) {
-    return false;
-  }
-
-  const existing = activityByTabId.get(tabId);
-  const record = upsertActivity(tabId, windowId, minute);
-  const changed = !existing || record.lastUpdatedAtMinute !== minute || (isValidId(windowId) && record.windowId !== windowId);
-
-  record.lastUpdatedAtMinute = minute;
-
-  if (isValidId(windowId)) {
-    record.windowId = windowId;
-  }
-
-  return changed;
-}
-
-function getWindowIdForActiveTab(tabId: number): number | null {
-  for (const [windowId, activeTabId] of activeTabIdByWindowId.entries()) {
-    if (activeTabId === tabId) {
-      return windowId;
-    }
-  }
-
-  return null;
-}
-
-function clearActiveWindowMappingForTab(tabId: number): boolean {
-  let changed = false;
-
-  for (const [windowId, activeTabId] of activeTabIdByWindowId.entries()) {
-    if (activeTabId !== tabId) {
-      continue;
-    }
-
-    activeTabIdByWindowId.delete(windowId);
-    changed = true;
-  }
-
-  return changed;
-}
-
-function markWindowActiveTabInactive(windowId: number, minute: number): boolean {
-  const activeTabId = activeTabIdByWindowId.get(windowId);
-
-  if (!isValidId(activeTabId)) {
-    return false;
-  }
-
-  return markTabUpdated(activeTabId, windowId, minute);
-}
-
-function ensureTabActivityBaseline(tab: QueryTab, nowMinute: number): boolean {
-  if (!isValidId(tab.id)) {
-    return false;
-  }
-
-  if (activityByTabId.has(tab.id)) {
-    return false;
-  }
-
-  return markTabUpdated(tab.id, tab.windowId, nowMinute);
 }
 
 function normalizeError(error: unknown): Error {
@@ -485,187 +145,114 @@ async function updateTab(tabId: number, updateProperties: Record<string, unknown
   );
 }
 
-function getSyntheticTimedOutActivity(nowMinute: number): Pick<TabActivity, "lastActiveAtMinute" | "lastUpdatedAtMinute"> {
-  const eligibleReferenceMinute = nowMinute - currentSettings.idleMinutes;
+const activityRuntime = createActivityRuntime({
+  queryTabs,
+  getCurrentEpochMinute,
+  log
+});
 
-  return {
-    lastActiveAtMinute: eligibleReferenceMinute,
-    lastUpdatedAtMinute: eligibleReferenceMinute
-  };
+function snapshotRecoveryState(): RecoveryEntry[] {
+  return recoveryEntries.map((entry) => ({
+    url: entry.url,
+    title: entry.title,
+    suspendedAtMinute: entry.suspendedAtMinute
+  }));
 }
 
-function buildPolicyInput(
-  tab: QueryTab,
-  nowMinute: number,
-  options: SuspendEvaluationOptions = {}
-): PolicyEvaluatorInput {
-  const tabId = isValidId(tab.id) ? tab.id : null;
-  const activity = options.forceTimeoutReached
-    ? getSyntheticTimedOutActivity(nowMinute)
-    : tabId === null
-      ? null
-      : activityByTabId.get(tabId) ?? null;
-
-  const urlValidation = validateRestorableUrl(tab.url);
-
-  return {
-    tab: {
-      active: options.ignoreActive ? false : tab.active === true,
-      pinned: tab.pinned === true,
-      audible: tab.audible === true,
-      url: tab.url
-    },
-    activity,
-    settings: currentSettings,
-    nowMinute,
-    flags: {
-      excludedHost: isExcludedUrlByHost(tab.url ?? null, currentSettings.excludedHosts),
-      urlTooLong: urlValidation.ok ? false : urlValidation.reason === "tooLong"
-    }
-  };
+async function persistRecoverySnapshot(): Promise<void> {
+  const persisted = await saveRecoveryToStorage(snapshotRecoveryState());
+  recoveryEntries = persisted.entries;
 }
 
-function buildSuspendPayload(tab: QueryTab, nowMinute: number): SuspendPayload | null {
-  const urlValidation = validateRestorableUrl(tab.url);
-
-  if (!urlValidation.ok) {
-    return null;
+const activityPersistQueue = createPersistQueue({
+  persist: () => activityRuntime.persistActivitySnapshot(),
+  onPersistError: (error) => {
+    log("Failed to persist activity snapshot.", error);
   }
+});
 
-  return {
-    u: urlValidation.url,
-    t: sanitizeSuspendedTitle(tab.title),
-    ts: nowMinute
-  };
+const recoveryPersistQueue = createPersistQueue({
+  persist: persistRecoverySnapshot,
+  onPersistError: (error) => {
+    log("Failed to persist recovery snapshot.", error);
+  }
+});
+
+function schedulePersistActivity(): void {
+  activityPersistQueue.markDirty();
 }
 
-function trackSuspendedRecoveryEntry(payload: SuspendPayload, suspendedAtMinute: number): void {
-  const nextEntry: RecoveryEntry = {
-    url: payload.u,
-    title: payload.t,
-    suspendedAtMinute
-  };
-
-  recoveryEntries = [nextEntry, ...recoveryEntries].slice(0, MAX_RECOVERY_ENTRIES * 2);
-  schedulePersistRecovery();
+function schedulePersistRecovery(): void {
+  recoveryPersistQueue.markDirty();
 }
 
-function encodeSuspendedUrl(payload: SuspendPayload): string {
-  return buildSuspendedDataUrl(payload);
+function applyStoredSettingsValue(value: unknown): void {
+  currentSettings = decodeStoredSettings(value);
 }
 
-async function suspendTabIfEligible(
-  tab: QueryTab,
-  nowMinute: number,
-  options: SuspendEvaluationOptions = {}
-): Promise<void> {
-  if (decodeSuspendedTabPayload(tab.url)) {
-    return;
-  }
-
-  if (!isValidId(tab.id)) {
-    return;
-  }
-
-  if (!options.forceTimeoutReached && ensureTabActivityBaseline(tab, nowMinute)) {
-    schedulePersistActivity();
-  }
-
-  const decision = evaluateSuspendDecision(buildPolicyInput(tab, nowMinute, options));
-
-  if (!decision.shouldSuspend) {
-    return;
-  }
-
-  const payload = buildSuspendPayload(tab, nowMinute);
-
-  if (!payload) {
-    log("Skipped eligible suspend candidate due missing URL payload.", { tabId: tab.id });
-    return;
-  }
-
+async function hydrateSettingsFromStorage(): Promise<void> {
   try {
-    await updateTab(tab.id, { url: encodeSuspendedUrl(payload) });
-    markTabUpdated(tab.id, tab.windowId, nowMinute);
-    schedulePersistActivity();
-    trackSuspendedRecoveryEntry(payload, nowMinute);
+    currentSettings = await loadSettingsFromStorage();
   } catch (error) {
-    log("Failed to suspend tab.", {
-      tabId: tab.id,
-      error: error instanceof Error ? error.message : String(error)
-    });
+    currentSettings = cloneSettings(DEFAULT_SETTINGS);
+    log("Failed to load settings from storage. Falling back to defaults.", error);
   }
 }
 
-async function runSuspendSweep(nowMinute = getCurrentEpochMinute()): Promise<void> {
-  // Defer sweeps until settings/activity hydration resolves so policy decisions are deterministic.
-  await runtimeReady;
-
-  let tabs: QueryTab[];
-
-  const filteredQueryInfo = buildSuspendSweepQueryInfo(currentSettings);
-
+async function hydrateRecoveryFromStorage(): Promise<void> {
   try {
-    tabs = await queryTabs(filteredQueryInfo);
+    recoveryEntries = await loadRecoveryFromStorage();
   } catch (error) {
-    if (!hasLoggedFilteredSweepQueryFailure) {
-      hasLoggedFilteredSweepQueryFailure = true;
-      log("Filtered tab query failed for suspend sweep. Falling back to unfiltered query.", error);
-    }
-
-    try {
-      tabs = await queryTabs({});
-    } catch (fallbackError) {
-      log("Failed to query tabs for suspend sweep.", fallbackError);
-      return;
-    }
-  }
-
-  for (const tab of tabs) {
-    await suspendTabIfEligible(tab, nowMinute);
+    recoveryEntries = [];
+    log("Failed to load recovery state from storage. Falling back to empty state.", error);
   }
 }
 
-function requestSuspendSweepRun(nowMinute: number): void {
-  if (sweepInFlight) {
-    pendingSweepMinute = pendingSweepMinute === null ? nowMinute : Math.max(pendingSweepMinute, nowMinute);
-    return;
+const suspendRunner = createSuspendRunner({
+  queryTabs,
+  updateTab,
+  waitForRuntimeReady: () => runtimeReady,
+  getCurrentEpochMinute,
+  getCurrentSettings: () => currentSettings,
+  getActivityForTab: (tabId) => activityRuntime.getActivityForTab(tabId),
+  ensureTabActivityBaseline: (tab, nowMinute) => activityRuntime.ensureTabActivityBaseline(tab, nowMinute),
+  markTabUpdated: (tabId, windowId, minute) => activityRuntime.markTabUpdated(tabId, windowId, minute),
+  schedulePersistActivity,
+  appendRecoveryEntry: (entry) => {
+    recoveryEntries = suspendRunner.appendRecoveryEntryWithCap(entry, recoveryEntries);
+  },
+  schedulePersistRecovery,
+  log
+});
+
+const sweepCoordinator = createSweepCoordinator({
+  runSweep: (minute) => suspendRunner.runSuspendSweep(minute),
+  onSweepError: (error) => {
+    log("Suspend sweep run failed.", error);
   }
+});
 
-  sweepInFlight = (async () => {
-    await runSuspendSweep(nowMinute);
-
-    // Bound catch-up to one extra sweep so prolonged alarm backlogs cannot run indefinitely.
-    if (pendingSweepMinute !== null) {
-      const nextMinute = pendingSweepMinute;
-      pendingSweepMinute = null;
-      await runSuspendSweep(nextMinute);
-    }
-  })()
-    .catch((error: unknown) => {
-      log("Suspend sweep run failed.", error);
-    })
-    .finally(() => {
-      sweepInFlight = null;
-    });
+function alignSweepCadenceAfterSettingsChange(nowMinute = getCurrentEpochMinute()): void {
+  const interval = computeSweepIntervalMinutes(currentSettings);
+  sweepCoordinator.alignDueCandidate(nowMinute, nowMinute + interval);
 }
 
-async function suspendFromAction(tab: QueryTab | undefined, nowMinute = getCurrentEpochMinute()): Promise<void> {
-  // Action-click bypasses only active/timeout checks; core safety guards still apply.
-  await runtimeReady;
-
-  if (!tab) {
+function handleStorageSettingsChange(changes: Record<string, StorageChange> | undefined, areaName: string): void {
+  if (areaName !== "local" || !changes) {
     return;
   }
 
-  await suspendTabIfEligible(tab, nowMinute, {
-    ignoreActive: true,
-    forceTimeoutReached: true
-  });
+  const settingsChange = changes[SETTINGS_STORAGE_KEY];
+
+  if (!settingsChange) {
+    return;
+  }
+
+  applyStoredSettingsValue(settingsChange.newValue);
+  alignSweepCadenceAfterSettingsChange();
 }
 
 function scheduleSuspendSweepAlarm(): void {
-  // Re-register on install/startup to tolerate service-worker restarts.
   const alarmsApi = chrome.alarms;
 
   if (!alarmsApi || typeof alarmsApi.create !== "function") {
@@ -681,91 +268,6 @@ function scheduleSuspendSweepAlarm(): void {
   }
 }
 
-async function pruneStaleActivityEntries(): Promise<boolean> {
-  try {
-    const tabs = await queryTabs({});
-    const existingTabIds = new Set<number>();
-
-    for (const tab of tabs) {
-      if (isValidId(tab.id)) {
-        existingTabIds.add(tab.id);
-      }
-    }
-
-    let changed = false;
-
-    for (const tabId of activityByTabId.keys()) {
-      if (existingTabIds.has(tabId)) {
-        continue;
-      }
-
-      activityByTabId.delete(tabId);
-      changed = true;
-    }
-
-    for (const [windowId, tabId] of activeTabIdByWindowId.entries()) {
-      if (existingTabIds.has(tabId)) {
-        continue;
-      }
-
-      activeTabIdByWindowId.delete(windowId);
-      changed = true;
-    }
-
-    return changed;
-  } catch (error) {
-    log("Failed to prune stale activity entries.", error);
-    return false;
-  }
-}
-
-async function seedActiveTabsOnStartup(): Promise<boolean> {
-  try {
-    const tabs = await queryTabs({ active: true });
-    const minute = getCurrentEpochMinute();
-    let changed = false;
-
-    for (const tab of tabs) {
-      if (!isValidId(tab.id)) {
-        continue;
-      }
-
-      if (markTabActive(tab.id, tab.windowId, minute)) {
-        changed = true;
-      }
-
-      if (isValidId(tab.windowId)) {
-        if (activeTabIdByWindowId.get(tab.windowId) !== tab.id) {
-          activeTabIdByWindowId.set(tab.windowId, tab.id);
-          changed = true;
-        }
-      }
-    }
-
-    return changed;
-  } catch (error) {
-    log("Failed to seed active tab activity state.", error);
-    return false;
-  }
-}
-
-async function initializeRuntimeState(): Promise<void> {
-  settingsReady = hydrateSettingsFromStorage();
-  activityReady = hydrateActivityFromStorage();
-  const recoveryReady = hydrateRecoveryFromStorage();
-
-  await Promise.all([settingsReady, activityReady, recoveryReady]);
-
-  const pruned = await pruneStaleActivityEntries();
-  const seeded = await seedActiveTabsOnStartup();
-
-  if (pruned || seeded) {
-    schedulePersistActivity();
-  }
-
-  nextSweepDueMinute = getCurrentEpochMinute();
-}
-
 function isMeaningfulTabUpdate(changeInfo: unknown): boolean {
   if (typeof changeInfo !== "object" || changeInfo === null) {
     return false;
@@ -775,6 +277,24 @@ function isMeaningfulTabUpdate(changeInfo: unknown): boolean {
 
   return typeof typed.status === "string" || typeof typed.url === "string";
 }
+
+runtimeReady = (async () => {
+  settingsReady = hydrateSettingsFromStorage();
+  activityReady = activityRuntime.hydrateFromStorage();
+
+  await bootstrapRuntimeState({
+    hydrateSettings: () => settingsReady,
+    hydrateActivity: () => activityReady,
+    hydrateRecovery: hydrateRecoveryFromStorage,
+    pruneStaleActivityEntries: () => activityRuntime.pruneStaleActivityEntries(),
+    seedActiveTabsOnStartup: () => activityRuntime.seedActiveTabsOnStartup(),
+    schedulePersistActivity,
+    setInitialSweepDueMinute: (minute) => {
+      sweepCoordinator.setDueMinute(minute);
+    },
+    getCurrentEpochMinute
+  });
+})();
 
 chrome.runtime.onInstalled.addListener(() => {
   log("Installed extension with suspend sweep enabled.");
@@ -790,13 +310,13 @@ chrome.tabs.onActivated.addListener((activeInfo: ActivatedInfo) => {
   const minute = getCurrentEpochMinute();
 
   if (isValidId(activeInfo.windowId)) {
-    markWindowActiveTabInactive(activeInfo.windowId, minute);
+    activityRuntime.markWindowActiveTabInactive(activeInfo.windowId, minute);
   }
 
-  markTabActive(activeInfo.tabId, activeInfo.windowId, minute);
+  activityRuntime.markTabActive(activeInfo.tabId, activeInfo.windowId, minute);
 
   if (isValidId(activeInfo.windowId)) {
-    activeTabIdByWindowId.set(activeInfo.windowId, activeInfo.tabId);
+    activityRuntime.setActiveTabForWindow(activeInfo.windowId, activeInfo.tabId);
     focusedWindowId = activeInfo.windowId;
   }
 
@@ -810,9 +330,9 @@ chrome.tabs.onUpdated.addListener((tabId: number, changeInfo: unknown, tab: Quer
 
   const minute = getCurrentEpochMinute();
 
-  if (markTabActive(tabId, tab.windowId, minute)) {
+  if (activityRuntime.markTabActive(tabId, tab.windowId, minute)) {
     if (isValidId(tab.windowId)) {
-      activeTabIdByWindowId.set(tab.windowId, tabId);
+      activityRuntime.setActiveTabForWindow(tab.windowId, tabId);
       focusedWindowId = tab.windowId;
     }
 
@@ -824,7 +344,7 @@ chrome.windows.onFocusChanged.addListener((windowId: number) => {
   const minute = getCurrentEpochMinute();
 
   if (!isValidId(windowId) || windowId === chrome.windows.WINDOW_ID_NONE) {
-    if (isValidId(focusedWindowId) && markWindowActiveTabInactive(focusedWindowId, minute)) {
+    if (isValidId(focusedWindowId) && activityRuntime.markWindowActiveTabInactive(focusedWindowId, minute)) {
       schedulePersistActivity();
     }
 
@@ -832,7 +352,7 @@ chrome.windows.onFocusChanged.addListener((windowId: number) => {
     return;
   }
 
-  if (isValidId(focusedWindowId) && focusedWindowId !== windowId && markWindowActiveTabInactive(focusedWindowId, minute)) {
+  if (isValidId(focusedWindowId) && focusedWindowId !== windowId && activityRuntime.markWindowActiveTabInactive(focusedWindowId, minute)) {
     schedulePersistActivity();
   }
 
@@ -846,11 +366,11 @@ chrome.windows.onFocusChanged.addListener((windowId: number) => {
         return;
       }
 
-      if (markTabActive(firstActiveTab.id, firstActiveTab.windowId ?? windowId, minute)) {
+      if (activityRuntime.markTabActive(firstActiveTab.id, firstActiveTab.windowId ?? windowId, minute)) {
         schedulePersistActivity();
       }
 
-      activeTabIdByWindowId.set(windowId, firstActiveTab.id);
+      activityRuntime.setActiveTabForWindow(windowId, firstActiveTab.id);
     })
     .catch((error: unknown) => {
       log("Failed to resolve active tab on window focus.", error);
@@ -864,11 +384,11 @@ chrome.tabs.onRemoved.addListener((tabId: number) => {
 
   let changed = false;
 
-  if (activityByTabId.delete(tabId)) {
+  if (activityRuntime.deleteActivityForTab(tabId)) {
     changed = true;
   }
 
-  if (clearActiveWindowMappingForTab(tabId)) {
+  if (activityRuntime.clearActiveWindowMappingForTab(tabId)) {
     changed = true;
   }
 
@@ -879,17 +399,17 @@ chrome.tabs.onRemoved.addListener((tabId: number) => {
 
 chrome.tabs.onReplaced.addListener((addedTabId: number, removedTabId: number) => {
   const minute = getCurrentEpochMinute();
-  const previous = isValidId(removedTabId) ? activityByTabId.get(removedTabId) : undefined;
-  const previousWindowId = isValidId(removedTabId) ? getWindowIdForActiveTab(removedTabId) : null;
+  const previous = isValidId(removedTabId) ? activityRuntime.getActivityForTab(removedTabId) : undefined;
+  const previousWindowId = isValidId(removedTabId) ? activityRuntime.getWindowIdForActiveTab(removedTabId) : null;
 
   let changed = false;
 
   if (isValidId(removedTabId)) {
-    if (activityByTabId.delete(removedTabId)) {
+    if (activityRuntime.deleteActivityForTab(removedTabId)) {
       changed = true;
     }
 
-    if (clearActiveWindowMappingForTab(removedTabId)) {
+    if (activityRuntime.clearActiveWindowMappingForTab(removedTabId)) {
       changed = true;
     }
   }
@@ -905,7 +425,7 @@ chrome.tabs.onReplaced.addListener((addedTabId: number, removedTabId: number) =>
   if (previous) {
     const nextWindowId = isValidId(previousWindowId) ? previousWindowId : previous.windowId;
 
-    activityByTabId.set(addedTabId, {
+    activityRuntime.replaceActivityRecord(addedTabId, {
       ...previous,
       tabId: addedTabId,
       windowId: nextWindowId,
@@ -914,15 +434,15 @@ chrome.tabs.onReplaced.addListener((addedTabId: number, removedTabId: number) =>
     });
 
     if (isValidId(nextWindowId)) {
-      activeTabIdByWindowId.set(nextWindowId, addedTabId);
+      activityRuntime.setActiveTabForWindow(nextWindowId, addedTabId);
     }
 
     changed = true;
   } else {
-    changed = markTabUpdated(addedTabId, undefined, minute) || changed;
+    changed = activityRuntime.markTabUpdated(addedTabId, undefined, minute) || changed;
 
     if (isValidId(previousWindowId)) {
-      activeTabIdByWindowId.set(previousWindowId, addedTabId);
+      activityRuntime.setActiveTabForWindow(previousWindowId, addedTabId);
       changed = true;
     }
   }
@@ -939,16 +459,16 @@ chrome.alarms.onAlarm.addListener((alarm: AlarmInfo | undefined) => {
 
   const nowMinute = getCurrentEpochMinute();
 
-  if (nowMinute < nextSweepDueMinute) {
+  if (!sweepCoordinator.shouldRun(nowMinute)) {
     return;
   }
 
-  nextSweepDueMinute = nowMinute + computeSweepIntervalMinutes(currentSettings);
-  requestSuspendSweepRun(nowMinute);
+  sweepCoordinator.markRan(nowMinute, computeSweepIntervalMinutes(currentSettings));
+  void sweepCoordinator.requestSweep(nowMinute);
 });
 
 chrome.action.onClicked.addListener((tab: QueryTab | undefined) => {
-  void suspendFromAction(tab);
+  void suspendRunner.suspendFromAction(tab);
 });
 
 if (chrome.storage?.onChanged && typeof chrome.storage.onChanged.addListener === "function") {
@@ -976,25 +496,21 @@ chrome.runtime.onMessage.addListener(
   }
 );
 
-runtimeReady = initializeRuntimeState();
 scheduleSuspendSweepAlarm();
 
 export const __testing = {
   getActivitySnapshot(): TabActivity[] {
-    return snapshotActivityState();
+    return activityRuntime.snapshotActivityState();
   },
   getActiveTabByWindowSnapshot(): Array<{ windowId: number; tabId: number }> {
-    return Array.from(activeTabIdByWindowId.entries())
-      .map(([windowId, tabId]) => ({ windowId, tabId }))
-      .sort((a, b) => a.windowId - b.windowId);
+    return activityRuntime.getActiveTabByWindowSnapshot();
   },
   resetActivityState(): void {
-    activityByTabId.clear();
-    activeTabIdByWindowId.clear();
+    activityRuntime.resetActivityState();
     focusedWindowId = null;
   },
   runSuspendSweep(nowMinute?: number): Promise<void> {
-    return runSuspendSweep(nowMinute);
+    return suspendRunner.runSuspendSweep(nowMinute);
   },
   waitForSettingsHydration(): Promise<void> {
     return settingsReady;
@@ -1006,10 +522,10 @@ export const __testing = {
     return runtimeReady;
   },
   flushPersistedActivityWrites(): Promise<void> {
-    return activityPersistQueue;
+    return activityPersistQueue.waitForIdle();
   },
   flushPersistedRecoveryWrites(): Promise<void> {
-    return recoveryPersistQueue;
+    return recoveryPersistQueue.waitForIdle();
   },
   getCurrentSettings(): Settings {
     return cloneSettings(currentSettings);
