@@ -15,6 +15,7 @@ This directory stores detailed plan specs and historical execution records.
 - `plan-9-technical-debt-contributor-docs.md`
 - `plan-10-suspended-page-ux-polish-and-extension-icon.md`
 - `plan-11-analysis-and-plan-generation.md`
+- `plan-12-feature-discovery-and-draft-plan-generation.md`
 - `plan-13-reliable-auto-suspend-timeout.md`
 - `plan-14-reload-safe-recovery.md`
 - `plan-15-safari-cpu-reduction.md`
@@ -26,6 +27,12 @@ This directory stores detailed plan specs and historical execution records.
 - `plan-22-simplicity-ux-and-maintenance.md`
 - `plan-23-over-engineering-reduction.md`
 - `plan-24-anti-patterns-and-code-health.md`
+- `plan-25-scheduled-snooze-and-quiet-hours.md`
+- `plan-26-per-site-policy-profiles.md`
+- `plan-27-recovery-center-ux-enhancements.md`
+- `plan-28-settings-import-export.md`
+- `plan-29-manual-suspend-controls.md`
+- `plan-30-suspension-reason-transparency.md`
 
 ## Usage
 - Keep `ROADMAP.md` concise and status-focused.

@@ -62,7 +62,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 9: Technical debt and contributor docs (CONTRIBUTING, code comments, cleanup) ([details](docs/plans/plan-9-technical-debt-contributor-docs.md))
 - [x] Plan 10: Suspended page UX polish + extension icon coverage ([details](docs/plans/plan-10-suspended-page-ux-polish-and-extension-icon.md))
 - [x] Plan 11: Multi-lens architecture review + follow-up draft plan generation (analysis-only, no code changes) ([details](docs/plans/plan-11-analysis-and-plan-generation.md))
-- [ ] Plan 12: (draft) Analyze and suggest features, create separate plans for each feature, but do not implement any of them.
+- [x] Plan 12: Feature discovery and draft plan generation for user-facing capabilities (analysis-only, no code changes) ([details](docs/plans/plan-12-feature-discovery-and-draft-plan-generation.md))
 - [x] Plan 13: Reliable auto-suspend timeout (focus-based + restart-safe) ([details](docs/plans/plan-13-reliable-auto-suspend-timeout.md))
 - [x] Plan 14: Reload-safe recovery ledger + options reopen flow ([details](docs/plans/plan-14-reload-safe-recovery.md))
 - [x] Plan 15: Safari CPU reduction via adaptive sweep cadence + candidate filtering ([details](docs/plans/plan-15-safari-cpu-reduction.md))
@@ -75,6 +75,12 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [ ] Plan 22: (draft) Simplicity UX and maintenance opportunities ([details](docs/plans/plan-22-simplicity-ux-and-maintenance.md))
 - [ ] Plan 23: (draft) Over-engineering reduction opportunities ([details](docs/plans/plan-23-over-engineering-reduction.md))
 - [ ] Plan 24: (draft) Anti-pattern and code-health opportunities ([details](docs/plans/plan-24-anti-patterns-and-code-health.md))
+- [ ] Plan 25: (draft) Scheduled snooze and quiet hours ([details](docs/plans/plan-25-scheduled-snooze-and-quiet-hours.md))
+- [ ] Plan 26: (draft) Per-site policy profiles ([details](docs/plans/plan-26-per-site-policy-profiles.md))
+- [ ] Plan 27: (draft) Recovery center UX enhancements ([details](docs/plans/plan-27-recovery-center-ux-enhancements.md))
+- [ ] Plan 28: (draft) Settings import/export ([details](docs/plans/plan-28-settings-import-export.md))
+- [ ] Plan 29: (draft) Manual suspend controls ([details](docs/plans/plan-29-manual-suspend-controls.md))
+- [ ] Plan 30: (draft) Suspension reason transparency ([details](docs/plans/plan-30-suspension-reason-transparency.md))
 
 ## Governance Rules
 - Execute one plan per implementation turn.
@@ -148,6 +154,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-019**: Post-Plan-11 quality drafts use fixed lens definitions and a shared scoring rubric (`Impact`, `Effort`, `Confidence`, `Priority Score = (Impact * Confidence) - Effort`) for cross-plan ranking consistency.
   - Alternatives: ad hoc per-plan scoring, or no shared numeric prioritization.
   - Impact: comparable prioritization across KISS/YAGNI/DRY/performance/reliability/simplicity/over-engineering/anti-patterns drafts and clearer sequencing decisions.
+- **D-020**: Plan 12 feature discovery is scoped to user-facing capabilities, and generated draft feature plans use top-level roadmap IDs starting at 25.
+  - Alternatives: fold user-facing work into existing quality-lens drafts, or use nested `12.x` identifiers.
+  - Impact: clearer separation between feature growth and internal quality tracks with consistent roadmap indexing.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -167,3 +176,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-26: Completed Plan 14 reload-safe recovery with versioned suspended-tab recovery storage, options-based reopen UI, and regression coverage for recovery persistence/failure handling.
 - 2026-02-26: Completed Plan 15 Safari CPU reduction with adaptive sweep cadence gating, filtered sweep candidate queries with fallback, and suspended-page self-churn avoidance.
 - 2026-02-26: Completed Plan 11 analysis-only multi-lens review and generated draft Plans 17-24 with standardized scoring/rubric metadata.
+- 2026-02-26: Completed Plan 12 feature discovery analysis and generated draft Plans 25-30 for user-facing capability expansion without runtime changes.
