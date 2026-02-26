@@ -2,7 +2,14 @@
 
 All notable user-facing changes are documented in this file.
 
-Current release: **1.4.0**
+Current release: **1.4.1**
+
+## [1.4.1] - 2026-02-26
+- Reduced background CPU overhead by precompiling host/profile matching and removing redundant suspend-path URL parsing.
+- Added bounded adaptive sweep backoff (`+0..+5` minutes) under heavy workloads to reduce runtime churn on large tab sets.
+- Reduced suspended tab memory footprint by simplifying the generated self-contained `data:` suspended page payload.
+- Simplified suspended page presentation by removing the extra `Original URL` heading line and the `Ready to restore this tab.` status line.
+- Expanded regression coverage for compiled matcher parity, adaptive sweep backoff behavior, and suspended payload size constraints.
 
 ## [1.4.0] - 2026-02-26
 - Added a new `Why tabs are not suspending` diagnostics panel in Options with manual refresh.

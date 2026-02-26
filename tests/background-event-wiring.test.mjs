@@ -399,6 +399,88 @@ test("settings update can pull sweep due time earlier", { concurrency: false }, 
   assert.equal(calls.queryCalls.length, queryCallsAfterStartup + 2);
 });
 
+test("heavy sweeps increase bounded cadence backoff up to +5 minutes", { concurrency: false }, async () => {
+  setNowMinute(500);
+
+  const heavyTabs = Array.from({ length: 401 }, (_, index) => ({
+    windowId: index + 1,
+    active: false,
+    pinned: false,
+    audible: false,
+    url: "about:blank",
+    title: "Heavy"
+  }));
+
+  const { events, backgroundModule } = await importBackgroundWithMock({
+    queryResponder(queryInfo) {
+      if (queryInfo.active === true) {
+        return [];
+      }
+
+      if (queryInfo.active === false) {
+        return heavyTabs;
+      }
+
+      return [];
+    }
+  });
+
+  await backgroundModule.__testing.waitForRuntimeReady();
+  assert.equal(backgroundModule.__testing.getSweepBackoffMinutes(), 0);
+
+  setNowMinute(500);
+  events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
+  await flushAsyncWork();
+  assert.equal(backgroundModule.__testing.getSweepBackoffMinutes(), 1);
+
+  setNowMinute(513);
+  events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
+  await flushAsyncWork();
+  assert.equal(backgroundModule.__testing.getSweepBackoffMinutes(), 2);
+});
+
+test("light sweeps decrease cadence backoff toward zero", { concurrency: false }, async () => {
+  setNowMinute(600);
+
+  let heavy = true;
+  const heavyTabs = Array.from({ length: 401 }, (_, index) => ({
+    windowId: index + 10,
+    active: false,
+    pinned: false,
+    audible: false,
+    url: "about:blank",
+    title: "Heavy"
+  }));
+
+  const { events, backgroundModule } = await importBackgroundWithMock({
+    queryResponder(queryInfo) {
+      if (queryInfo.active === true) {
+        return [];
+      }
+
+      if (queryInfo.active === false) {
+        return heavy ? heavyTabs : [];
+      }
+
+      return [];
+    }
+  });
+
+  await backgroundModule.__testing.waitForRuntimeReady();
+  assert.equal(backgroundModule.__testing.getSweepBackoffMinutes(), 0);
+
+  setNowMinute(600);
+  events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
+  await flushAsyncWork();
+  assert.equal(backgroundModule.__testing.getSweepBackoffMinutes(), 1);
+
+  heavy = false;
+  setNowMinute(613);
+  events.alarmsOnAlarm.dispatch({ name: "suspend-sweep-v1" });
+  await flushAsyncWork();
+  assert.equal(backgroundModule.__testing.getSweepBackoffMinutes(), 0);
+});
+
 test("alarm sweeps do not overlap while one sweep is in-flight", { concurrency: false }, async () => {
   setNowMinute(200);
 

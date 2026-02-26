@@ -1,23 +1,25 @@
 import { evaluateSuspendDecision } from "../policy.js";
 import type {
+  CompiledPolicyContext,
   DecodedSuspendPayload,
+  SweepRunStats,
   SuspendDecision,
   SuspendDiagnosticsEntry,
   SuspendDiagnosticsResponse,
   SuspendDiagnosticsSummary,
   PolicyEvaluatorInput,
   RecoveryEntry,
-  ResolvedPolicySettings,
   Settings,
   SuspendPayload,
   SuspendReason,
   TabActivity
 } from "../types.js";
 import { validateRestorableUrlWithMetadata } from "../url-safety.js";
-import { findMatchingSiteProfile, matchesExcludedHost } from "../matcher.js";
+import { findMatchingSiteProfileInCompiledRules, matchesExcludedHostInCompiledRules } from "../matcher.js";
 import { MAX_RECOVERY_ENTRIES } from "../recovery-store.js";
 import {
   buildSuspendedDataUrl,
+  isSuspendedDataUrl,
   decodeLegacySuspendPayloadFromUrl,
   decodeSuspendPayloadFromDataUrl,
   sanitizeSuspendedTitle
@@ -34,6 +36,7 @@ type TabUrlAnalysis = {
   internalUrl: boolean;
   urlTooLong: boolean;
   excludedHost: boolean;
+  hostname: string | null;
   restorableUrl: string | null;
 };
 
@@ -43,6 +46,7 @@ type CreateSuspendRunnerOptions = {
   waitForRuntimeReady: () => Promise<void>;
   getCurrentEpochMinute: () => number;
   getCurrentSettings: () => Settings;
+  getCompiledPolicyContext: () => CompiledPolicyContext;
   getActivityForTab: (tabId: number) => TabActivity | undefined;
   ensureTabActivityBaseline: (tab: QueryTab, nowMinute: number) => boolean;
   markTabUpdated: (tabId: number, windowId: number | undefined, minute: number) => boolean;
@@ -50,6 +54,16 @@ type CreateSuspendRunnerOptions = {
   appendRecoveryEntry: (entry: RecoveryEntry) => void;
   schedulePersistRecovery: () => void;
   log: (message: string, details?: unknown) => void;
+};
+
+type SuspendEvaluationContext = {
+  settings: Settings;
+  compiledPolicyContext: CompiledPolicyContext;
+};
+
+type ResolvePolicySettingsResult = {
+  settings: Settings;
+  profileExcluded: boolean;
 };
 
 export type SuspendRunner = ReturnType<typeof createSuspendRunner>;
@@ -64,6 +78,15 @@ const SUSPEND_REASON_ORDER: readonly SuspendReason[] = [
   "timeoutNotReached",
   "eligible"
 ];
+
+function createEmptySweepRunStats(): SweepRunStats {
+  return {
+    evaluatedTabs: 0,
+    suspendedTabs: 0,
+    failedUpdates: 0,
+    durationMs: 0
+  };
+}
 
 export function computeSweepIntervalMinutes(settings: Settings): number {
   const interval = Math.floor(settings.idleMinutes / 120);
@@ -170,20 +193,24 @@ function getSuspendReasonRank(reason: SuspendReason): number {
   return index === -1 ? SUSPEND_REASON_ORDER.length : index;
 }
 
-function resolvePolicySettingsForHostname(settings: Settings, hostname: string | null): ResolvedPolicySettings {
+function resolvePolicySettingsForHostname(
+  settings: Settings,
+  compiledPolicyContext: CompiledPolicyContext,
+  hostname: string | null
+): ResolvePolicySettingsResult {
   if (!hostname) {
     return {
       settings,
-      matchedProfileId: null
+      profileExcluded: false
     };
   }
 
-  const matchedProfile = findMatchingSiteProfile(hostname, settings.siteProfiles);
+  const matchedProfile = findMatchingSiteProfileInCompiledRules(hostname, compiledPolicyContext.siteProfileRules);
 
   if (!matchedProfile) {
     return {
       settings,
-      matchedProfileId: null
+      profileExcluded: false
     };
   }
 
@@ -194,11 +221,11 @@ function resolvePolicySettingsForHostname(settings: Settings, hostname: string |
       skipPinned: matchedProfile.overrides.skipPinned ?? settings.skipPinned,
       skipAudible: matchedProfile.overrides.skipAudible ?? settings.skipAudible
     },
-    matchedProfileId: matchedProfile.id
+    profileExcluded: matchedProfile.overrides.excludeFromSuspend === true
   };
 }
 
-function analyzeTabUrl(tab: QueryTab, settings: Settings): TabUrlAnalysis {
+function analyzeTabUrl(tab: QueryTab, compiledPolicyContext: CompiledPolicyContext): TabUrlAnalysis {
   const validation = validateRestorableUrlWithMetadata(tab.url);
 
   if (!validation.ok) {
@@ -206,6 +233,7 @@ function analyzeTabUrl(tab: QueryTab, settings: Settings): TabUrlAnalysis {
       internalUrl: validation.reason !== "tooLong",
       urlTooLong: validation.reason === "tooLong",
       excludedHost: false,
+      hostname: null,
       restorableUrl: null
     };
   }
@@ -213,7 +241,8 @@ function analyzeTabUrl(tab: QueryTab, settings: Settings): TabUrlAnalysis {
   return {
     internalUrl: false,
     urlTooLong: false,
-    excludedHost: matchesExcludedHost(validation.hostname, settings.excludedHosts),
+    excludedHost: matchesExcludedHostInCompiledRules(validation.hostname, compiledPolicyContext.excludedHostRules),
+    hostname: validation.hostname,
     restorableUrl: validation.url
   };
 }
@@ -221,25 +250,42 @@ function analyzeTabUrl(tab: QueryTab, settings: Settings): TabUrlAnalysis {
 export function createSuspendRunner(options: CreateSuspendRunnerOptions) {
   let hasLoggedFilteredSweepQueryFailure = false;
 
+  function createEvaluationContext(): SuspendEvaluationContext {
+    return {
+      settings: options.getCurrentSettings(),
+      compiledPolicyContext: options.getCompiledPolicyContext()
+    };
+  }
+
+  function isAlreadySuspendedUrl(url: string | undefined): boolean {
+    if (typeof url !== "string" || url.length === 0) {
+      return false;
+    }
+
+    if (isSuspendedDataUrl(url)) {
+      return true;
+    }
+
+    return decodeLegacySuspendPayloadFromUrl(url) !== null;
+  }
+
   function evaluateTabSuspendDecision(
     tab: QueryTab,
     nowMinute: number,
-    evaluationOptions: SuspendEvaluationOptions = {}
+    evaluationOptions: SuspendEvaluationOptions = {},
+    evaluationContext = createEvaluationContext()
   ): {
     decision: SuspendDecision;
     urlAnalysis: TabUrlAnalysis;
   } {
-    const settings = options.getCurrentSettings();
-    const urlAnalysis = analyzeTabUrl(tab, settings);
+    const { settings, compiledPolicyContext } = evaluationContext;
+    const urlAnalysis = analyzeTabUrl(tab, compiledPolicyContext);
     const resolvedPolicySettings = resolvePolicySettingsForHostname(
       settings,
-      urlAnalysis.restorableUrl ? new URL(urlAnalysis.restorableUrl).hostname : null
+      compiledPolicyContext,
+      urlAnalysis.hostname
     );
-    const matchedProfile = resolvedPolicySettings.matchedProfileId
-      ? settings.siteProfiles.find((profile) => profile.id === resolvedPolicySettings.matchedProfileId) ?? null
-      : null;
     const effectiveSettings = resolvedPolicySettings.settings;
-    const profileExcluded = matchedProfile?.overrides.excludeFromSuspend === true;
     const activity = evaluationOptions.forceTimeoutReached
       ? getSyntheticTimedOutActivity(nowMinute, effectiveSettings)
       : isValidId(tab.id)
@@ -253,7 +299,7 @@ export function createSuspendRunner(options: CreateSuspendRunnerOptions) {
         activity,
         {
           ...urlAnalysis,
-          excludedHost: urlAnalysis.excludedHost || profileExcluded
+          excludedHost: urlAnalysis.excludedHost || resolvedPolicySettings.profileExcluded
         },
         evaluationOptions
       )
@@ -265,29 +311,45 @@ export function createSuspendRunner(options: CreateSuspendRunnerOptions) {
   async function suspendTabIfEligible(
     tab: QueryTab,
     nowMinute: number,
-    evaluationOptions: SuspendEvaluationOptions = {}
-  ): Promise<void> {
-    if (decodeSuspendedTabPayload(tab.url)) {
-      return;
+    evaluationOptions: SuspendEvaluationOptions = {},
+    evaluationContext = createEvaluationContext()
+  ): Promise<{
+    suspended: boolean;
+    failedUpdate: boolean;
+  }> {
+    if (isAlreadySuspendedUrl(tab.url)) {
+      return {
+        suspended: false,
+        failedUpdate: false
+      };
     }
 
     if (!isValidId(tab.id)) {
-      return;
+      return {
+        suspended: false,
+        failedUpdate: false
+      };
     }
 
     if (!evaluationOptions.forceTimeoutReached && options.ensureTabActivityBaseline(tab, nowMinute)) {
       options.schedulePersistActivity();
     }
 
-    const { decision, urlAnalysis } = evaluateTabSuspendDecision(tab, nowMinute, evaluationOptions);
+    const { decision, urlAnalysis } = evaluateTabSuspendDecision(tab, nowMinute, evaluationOptions, evaluationContext);
 
     if (!decision.shouldSuspend) {
-      return;
+      return {
+        suspended: false,
+        failedUpdate: false
+      };
     }
 
     if (!urlAnalysis.restorableUrl) {
       options.log("Skipped eligible suspend candidate due missing URL payload.", { tabId: tab.id });
-      return;
+      return {
+        suspended: false,
+        failedUpdate: false
+      };
     }
 
     const payload = buildSuspendPayload(tab, urlAnalysis.restorableUrl, nowMinute);
@@ -302,19 +364,30 @@ export function createSuspendRunner(options: CreateSuspendRunnerOptions) {
         suspendedAtMinute: nowMinute
       });
       options.schedulePersistRecovery();
+      return {
+        suspended: true,
+        failedUpdate: false
+      };
     } catch (error) {
       options.log("Failed to suspend tab.", {
         tabId: tab.id,
         error: error instanceof Error ? error.message : String(error)
       });
+      return {
+        suspended: false,
+        failedUpdate: true
+      };
     }
   }
 
-  async function runSuspendSweep(nowMinute = options.getCurrentEpochMinute()): Promise<void> {
+  async function runSuspendSweep(nowMinute = options.getCurrentEpochMinute()): Promise<SweepRunStats> {
     await options.waitForRuntimeReady();
 
+    const startedAt = Date.now();
+    const stats = createEmptySweepRunStats();
     let tabs: QueryTab[];
-    const filteredQueryInfo = buildSuspendSweepQueryInfo(options.getCurrentSettings());
+    const evaluationContext = createEvaluationContext();
+    const filteredQueryInfo = buildSuspendSweepQueryInfo(evaluationContext.settings);
 
     try {
       tabs = await options.queryTabs(filteredQueryInfo);
@@ -328,13 +401,25 @@ export function createSuspendRunner(options: CreateSuspendRunnerOptions) {
         tabs = await options.queryTabs({});
       } catch (fallbackError) {
         options.log("Failed to query tabs for suspend sweep.", fallbackError);
-        return;
+        stats.durationMs = Math.max(0, Date.now() - startedAt);
+        return stats;
       }
     }
 
+    stats.evaluatedTabs = tabs.length;
+
     for (const tab of tabs) {
-      await suspendTabIfEligible(tab, nowMinute);
+      const result = await suspendTabIfEligible(tab, nowMinute, {}, evaluationContext);
+      if (result.suspended) {
+        stats.suspendedTabs += 1;
+      }
+      if (result.failedUpdate) {
+        stats.failedUpdates += 1;
+      }
     }
+
+    stats.durationMs = Math.max(0, Date.now() - startedAt);
+    return stats;
   }
 
   async function suspendFromAction(tab: QueryTab | undefined, nowMinute = options.getCurrentEpochMinute()): Promise<void> {
@@ -344,10 +429,11 @@ export function createSuspendRunner(options: CreateSuspendRunnerOptions) {
       return;
     }
 
+    const evaluationContext = createEvaluationContext();
     await suspendTabIfEligible(tab, nowMinute, {
       ignoreActive: true,
       forceTimeoutReached: true
-    });
+    }, evaluationContext);
   }
 
   async function getSuspendDiagnosticsSnapshot(
@@ -372,9 +458,10 @@ export function createSuspendRunner(options: CreateSuspendRunnerOptions) {
     const entries: SuspendDiagnosticsEntry[] = [];
     const maxEntries = Math.min(totalTabs, MAX_SUSPEND_DIAGNOSTICS_ENTRIES);
     let entryCount = 0;
+    const evaluationContext = createEvaluationContext();
 
     for (const tab of tabs) {
-      const { decision } = evaluateTabSuspendDecision(tab, nowMinute);
+      const { decision } = evaluateTabSuspendDecision(tab, nowMinute, {}, evaluationContext);
       const reason = decision.reason;
       summary[reason] += 1;
 

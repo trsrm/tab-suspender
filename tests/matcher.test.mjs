@@ -2,9 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  compileExcludedHostRules,
+  compilePolicyContext,
+  compileSiteProfileRules,
   findMatchingSiteProfile,
+  findMatchingSiteProfileInCompiledRules,
   isExcludedUrlByHost,
   matchesExcludedHost,
+  matchesExcludedHostInCompiledRules,
   normalizeExcludedHostEntries,
   normalizeSiteProfileHostRule,
   normalizeSiteProfiles
@@ -131,4 +136,39 @@ test("findMatchingSiteProfile precedence is exact > wildcard > longer target > e
 
   assert.equal(forApi?.id, "e1");
   assert.equal(forSub?.id, "w2");
+});
+
+test("compiled excluded host rules preserve exact and wildcard matching parity", () => {
+  const rules = compileExcludedHostRules(["example.com", "*.api.example.com"]);
+
+  assert.equal(matchesExcludedHostInCompiledRules("example.com", rules), true);
+  assert.equal(matchesExcludedHostInCompiledRules("x.api.example.com", rules), true);
+  assert.equal(matchesExcludedHostInCompiledRules("api.example.com", rules), false);
+  assert.equal(matchesExcludedHostInCompiledRules("other.com", rules), false);
+});
+
+test("compiled site profile rules preserve deterministic precedence", () => {
+  const profiles = [
+    { id: "w1", hostRule: "*.example.com", overrides: {} },
+    { id: "w2", hostRule: "*.api.example.com", overrides: {} },
+    { id: "e1", hostRule: "api.example.com", overrides: {} },
+    { id: "w3", hostRule: "*.api.example.com", overrides: { skipAudible: false } }
+  ];
+  const compiled = compileSiteProfileRules(profiles);
+
+  assert.equal(findMatchingSiteProfileInCompiledRules("api.example.com", compiled)?.id, "e1");
+  assert.equal(findMatchingSiteProfileInCompiledRules("a.api.example.com", compiled)?.id, "w2");
+});
+
+test("compilePolicyContext compiles host and profile indices from settings", () => {
+  const context = compilePolicyContext({
+    idleMinutes: 60,
+    excludedHosts: ["example.com", "*.example.com"],
+    skipPinned: true,
+    skipAudible: true,
+    siteProfiles: [{ id: "p1", hostRule: "api.example.com", overrides: { idleMinutes: 120 } }]
+  });
+
+  assert.equal(matchesExcludedHostInCompiledRules("example.com", context.excludedHostRules), true);
+  assert.equal(findMatchingSiteProfileInCompiledRules("api.example.com", context.siteProfileRules)?.id, "p1");
 });

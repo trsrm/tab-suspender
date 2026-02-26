@@ -80,6 +80,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 30: Suspension reason transparency ([details](docs/plans/plan-30-suspension-reason-transparency.md))
 - [x] Plan 31: Disable/uninstall-safe suspended tab survival (prevent suspended tabs from closing when extension is disabled/uninstalled) ([details](docs/plans/plan-31-disable-uninstall-safe-suspended-tab-survival.md))
 - [x] Plan 32: Long-idle hours UX + aggressive sweep scaling (CPU-first) ([details](docs/plans/plan-32-hours-ui-and-long-idle-cadence.md))
+- [x] Plan 33: CPU-first lightweight runtime refactor (compiled matcher paths + adaptive sweep backoff + lighter suspended data URLs) ([details](docs/plans/plan-33-runtime-lightweight-refactor.md))
 
 ## Governance Rules
 - Execute one plan per implementation turn.
@@ -198,6 +199,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-034**: Suspension diagnostics are exposed as a manual, local-only options-page snapshot over runtime messaging, reusing existing policy reason taxonomy with bounded per-tab output (`max 200`) and full reason-count summaries.
   - Alternatives: continuous auto-refresh diagnostics, telemetry-backed diagnostics, or unbounded per-tab rendering.
   - Impact: transparent troubleshooting for suspend eligibility without changing policy behavior, storage schema, or runtime sweep cadence.
+- **D-035**: Policy host/profile matching now uses settings-transition-compiled matcher indices, sweep cadence adds bounded adaptive backoff (`+0..+5` minutes) from sweep run stats, and suspended data URL skip detection is marker-based while preserving legacy signature compatibility.
+  - Alternatives: continue per-tab rule scans and fixed cadence, or decode full data-url payloads in sweep skip path.
+  - Impact: lower steady-state background CPU/allocation churn and smaller suspended-page footprint without policy/schema/permission changes.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -221,6 +225,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-26: Completed Plan 11 analysis-only multi-lens review and generated draft Plans 17-24 with standardized scoring/rubric metadata.
 - 2026-02-26: Completed Plan 12 feature discovery analysis and generated draft Plans 26-30 for user-facing capability expansion without runtime changes.
 - 2026-02-26: Completed Plan 32 long-idle hours UX with minute-compatible storage, 24-hour default timeout, and 30-minute max sweep cadence scaling.
+- 2026-02-26: Completed Plan 33 CPU-first lightweight runtime refactor with compiled matcher policy context, bounded adaptive sweep backoff (`+0..+5`), and reduced suspended data URL payload size.
 - 2026-02-26: Completed Plan 31 disable/uninstall-safe suspended-tab survival with signed self-contained `data:` suspended pages and legacy extension-page compatibility detection.
 - 2026-02-26: Completed Plan 18 YAGNI pruning by removing legacy PING messaging, consolidating storage compatibility wrappers into `storage-compat.ts`, and minimizing background `__testing` surface.
 - 2026-02-26: Completed Plan 28 settings import/export with portable JSON schema v1, staged import preview/apply/cancel UX, atomic settings+recovery writes, and targeted parser/UI regression coverage.

@@ -499,6 +499,7 @@ test("payload URL builder round-trips encoded fields", { concurrency: false }, a
 
   const decoded = backgroundModule.__testing.decodeSuspendedUrl(destination);
   assert.equal(backgroundModule.__testing.isSuspendedDataUrl(destination), true);
+  assert.equal(destination.length < 2600, true);
   assert.equal(decoded?.format, "dataUrl");
   assert.equal(decoded?.u, "https://example.com/path?q=a b");
   assert.equal(decoded?.t, "Trimmed Title");
@@ -508,7 +509,8 @@ test("payload URL builder round-trips encoded fields", { concurrency: false }, a
   assert.equal(decodedHtml.includes("TS_DATA_SUSPENDED_PAGE_V1"), true);
   assert.equal(decodedHtml.includes('id="restoreControl"'), true);
   assert.equal(decodedHtml.includes('href="https://example.com/path?q=a b"'), true);
-  assert.equal(decodedHtml.includes("Ready to restore this tab."), true);
+  assert.equal(decodedHtml.includes("Ready to restore this tab."), false);
+  assert.equal(decodedHtml.includes("<strong>Original URL</strong>"), false);
 });
 
 test("runSuspendSweep continues when one tab update fails", { concurrency: false }, async () => {

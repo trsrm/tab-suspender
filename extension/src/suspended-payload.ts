@@ -4,7 +4,9 @@ import { validateRestorableUrl } from "./url-safety.js";
 
 export const MAX_SUSPENDED_TITLE_LENGTH = 120;
 export const SUSPENDED_DATA_PAGE_SIGNATURE = "TS_DATA_SUSPENDED_PAGE_V1";
+export const MAX_DECODED_SUSPENDED_DATA_URL_LENGTH = 32_768;
 const SUSPENDED_DATA_PAGE_PAYLOAD_SCRIPT_ID = "tab-suspender-payload";
+const SUSPENDED_DATA_URL_MARKER = encodeURIComponent(`tab-suspender-signature:${SUSPENDED_DATA_PAGE_SIGNATURE}`);
 
 function sanitizeRawUrl(value: unknown): string {
   if (typeof value !== "string") {
@@ -85,15 +87,26 @@ function decodeDataUrlHtml(url: string): string | null {
       return null;
     }
 
+    const maxBase64Length = Math.ceil((MAX_DECODED_SUSPENDED_DATA_URL_LENGTH * 4) / 3) + 8;
+    if (payload.length > maxBase64Length) {
+      return null;
+    }
+
     try {
-      return globalThis.atob(payload);
+      const decoded = globalThis.atob(payload);
+      return decoded.length <= MAX_DECODED_SUSPENDED_DATA_URL_LENGTH ? decoded : null;
     } catch {
       return null;
     }
   }
 
+  if (payload.length > MAX_DECODED_SUSPENDED_DATA_URL_LENGTH * 4) {
+    return null;
+  }
+
   try {
-    return decodeURIComponent(payload);
+    const decoded = decodeURIComponent(payload);
+    return decoded.length <= MAX_DECODED_SUSPENDED_DATA_URL_LENGTH ? decoded : null;
   } catch {
     return null;
   }
@@ -129,7 +142,16 @@ export function isSuspendedDataUrl(url: string | undefined): boolean {
     return false;
   }
 
-  return decodeSuspendPayloadFromDataUrl(url) !== null;
+  if (!url.startsWith("data:text/html")) {
+    return false;
+  }
+
+  if (url.includes(SUSPENDED_DATA_URL_MARKER)) {
+    return true;
+  }
+
+  // Backward compatibility for older generated pages that only carried the v1 signature token.
+  return url.includes(SUSPENDED_DATA_PAGE_SIGNATURE);
 }
 
 function serializePayloadForHtml(payload: SuspendPayload): string {
@@ -167,56 +189,23 @@ export function buildSuspendedDataUrl(payload: SuspendPayload): string {
   const documentTitle = pageTitle.slice(0, 80);
   const displayUrl = validation.ok ? validation.url : payload.u.trim().length > 0 ? payload.u.trim() : "Original URL is unavailable.";
   const capturedAtText = formatCapturedAtMinuteUtc(payload.ts);
-  const statusText = validation.ok ? "Ready to restore this tab." : getInvalidPayloadStatus(validation.reason);
   const escapedTitle = escapeHtml(pageTitle);
   const escapedDocumentTitle = escapeHtml(documentTitle);
   const escapedDisplayUrl = escapeHtml(displayUrl);
   const escapedCapturedAt = escapeHtml(capturedAtText);
-  const escapedStatus = escapeHtml(statusText);
+  const statusMarkup = validation.ok
+    ? ""
+    : `<p id="status" role="status" aria-live="polite">${escapeHtml(getInvalidPayloadStatus(validation.reason))}</p>`;
   const escapedRestoreHref = validation.ok ? escapeHtml(validation.url) : "";
   const originalUrlControl = validation.ok
-    ? `<a id="originalUrl" class="url-control" href="${escapedRestoreHref}">${escapedDisplayUrl}</a>`
-    : `<span id="originalUrl" class="url-control is-disabled">${escapedDisplayUrl}</span>`;
+    ? `<a id="originalUrl" class="url" href="${escapedRestoreHref}">${escapedDisplayUrl}</a>`
+    : `<span id="originalUrl" class="url muted">${escapedDisplayUrl}</span>`;
   const restoreControl = validation.ok
-    ? `<a id="restoreControl" class="restore-link" href="${escapedRestoreHref}">Restore</a>`
-    : `<span id="restoreControl" class="restore-link is-disabled" aria-disabled="true">Restore</span>`;
+    ? `<a id="restoreControl" class="btn" href="${escapedRestoreHref}">Restore</a>`
+    : `<a id="restoreControl" class="btn disabled" aria-disabled="true">Restore</a>`;
 
   const serializedPayload = serializePayloadForHtml(payload);
-  const html = `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="tab-suspender-signature" content="${SUSPENDED_DATA_PAGE_SIGNATURE}" />
-  <title>${escapedDocumentTitle}</title>
-  <style>
-    :root { color-scheme: light dark; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 20px; background: #f5f6f8; color: #1f2933; }
-    main { max-width: 720px; margin: 0 auto; background: #fff; border: 1px solid #d8dee9; border-radius: 12px; padding: 20px; }
-    h1 { font-size: 1.35rem; margin: 0 0 0.75rem; }
-    p { margin: 0.5rem 0; }
-    .url-control { display: block; width: 100%; box-sizing: border-box; text-align: left; text-decoration: none; border: 1px solid #d8dee9; background: #f8fafc; color: #1f2933; border-radius: 8px; padding: 10px; word-break: break-all; }
-    .url-control.is-disabled { opacity: 0.75; }
-    .actions { margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
-    .restore-link { display: inline-block; border: 1px solid #166534; background: #15803d; color: #fff; border-radius: 8px; padding: 0.6rem 0.9rem; text-decoration: none; }
-    .restore-link.is-disabled { opacity: 0.7; pointer-events: none; }
-    .muted { color: #52606d; }
-  </style>
-</head>
-<body>
-  <main>
-    <h1 id="title">${escapedTitle}</h1>
-    <p class="muted" id="capturedAt">${escapedCapturedAt}</p>
-    <p><strong>Original URL</strong></p>
-    ${originalUrlControl}
-    <p id="status" role="status" aria-live="polite">${escapedStatus}</p>
-    <div class="actions">
-      ${restoreControl}
-    </div>
-  </main>
-  <script id="${SUSPENDED_DATA_PAGE_PAYLOAD_SCRIPT_ID}" type="application/json">${serializedPayload}</script>
-</body>
-</html>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="tab-suspender-signature" content="${SUSPENDED_DATA_PAGE_SIGNATURE}"><title>${escapedDocumentTitle}</title><style>body{font:14px system-ui,-apple-system,sans-serif;margin:20px;background:#f8fafc;color:#0f172a}main{max-width:680px;margin:auto;padding:16px;background:#fff;border:1px solid #d0d7de;border-radius:10px}h1{font-size:1.12rem;margin:0 0 .5rem}p{margin:.45rem 0}.muted{color:#475569}.url{display:block;word-break:break-all}.btn{display:inline-block;margin-top:.55rem;padding:.45rem .7rem;border-radius:8px;background:#15803d;color:#fff;text-decoration:none}.btn.disabled{background:#94a3b8;pointer-events:none}</style></head><body><main><h1 id="title">${escapedTitle}</h1><p id="capturedAt" class="muted">${escapedCapturedAt}</p>${originalUrlControl}${statusMarkup}${restoreControl}</main><!--tab-suspender-signature:${SUSPENDED_DATA_PAGE_SIGNATURE}--><script id="${SUSPENDED_DATA_PAGE_PAYLOAD_SCRIPT_ID}" type="application/json">${serializedPayload}</script></body></html>`;
 
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }

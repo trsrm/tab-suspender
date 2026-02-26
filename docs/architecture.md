@@ -6,6 +6,7 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 ## Runtime Components
 - `extension/src/background.ts`
   - Composition root: wires listeners, runtime gates, persistence queues, and internal background modules, including shared typed listener payload guards.
+  - Applies adaptive sweep backoff (`+0..+5` minutes) from per-run sweep stats to reduce CPU under heavy workloads.
   - Owns local diagnostics runtime messaging endpoint for options-page snapshot requests.
 - `extension/src/background/runtime-bootstrap.ts`
   - Startup hydration/prune/seed orchestration for deterministic runtime readiness.
@@ -24,7 +25,7 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 - `extension/src/storage-compat.ts`
   - Shared callback/promise storage API adapter with unified `runtime.lastError` handling.
 - `extension/src/matcher.ts`
-  - Host exclusion/profile normalization and exact/wildcard hostname matching with deterministic profile precedence.
+  - Host exclusion/profile normalization plus compiled host/profile matching indexes for low-allocation deterministic precedence checks.
 - `extension/src/url-safety.ts`
   - Shared restore/suspend URL validator (`http/https`, max length 2048).
 - `extension/src/options.ts`
@@ -56,9 +57,10 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 - `tabs.onActivated`, `tabs.onUpdated`, `windows.onFocusChanged`, `tabs.onRemoved`, and `tabs.onReplaced` maintain bounded minute-level tab activity state.
 3. Sweep evaluation
 - Alarm (`suspend-sweep-v1`) runs every minute.
-- Alarm ticks are cadence-gated (`1..30` minute effective interval based on `idleMinutes`) before running full sweep logic.
+- Alarm ticks are cadence-gated (`1..30` minute base interval from `idleMinutes`) plus adaptive backoff (`+0..+5`) before running full sweep logic.
 - Sweep candidates are queried with pre-filters (`active: false`; `pinned/audible` filters are applied only when site profiles are not configured).
 - If filtered query fails, runtime falls back to unfiltered tab query for safety.
+- Per-run sweep stats (`evaluatedTabs`, `suspendedTabs`, `failedUpdates`, `durationMs`) are used to increase/decrease backoff deterministically.
 4. Policy decision
 - Evaluator returns deterministic `{ shouldSuspend, reason }`.
 - Eligible tabs are rewritten to a self-contained `data:text/html` suspended document with encoded payload.
@@ -138,7 +140,7 @@ Used by:
 - Background logs and continues when individual tab updates fail.
 - Tab query/update wrappers in background runtime support callback and Promise-style extension APIs.
 - Storage load/save wrappers are centralized in `storage-compat.ts`.
-- Suspend sweeps skip already-suspended `data:` pages (signature-validated) and legacy extension suspended pages.
+- Suspend sweeps skip already-suspended `data:` pages via marker-based detection and still recognize legacy extension suspended pages.
 - Invalid/missing activity defaults to non-suspension (`timeoutNotReached`).
 - Invalid storage payload falls back to defaults.
 

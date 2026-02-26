@@ -19,6 +19,29 @@ export interface Settings {
   siteProfiles: SiteProfile[];
 }
 
+export interface CompiledExcludedHostRules {
+  exactHosts: ReadonlySet<string>;
+  wildcardTargets: readonly string[];
+}
+
+export interface CompiledSiteProfileCandidate {
+  profile: SiteProfile;
+  targetHost: string;
+  wildcard: boolean;
+  sourceIndex: number;
+  targetLength: number;
+}
+
+export interface CompiledSiteProfileRules {
+  exactProfilesByHost: ReadonlyMap<string, CompiledSiteProfileCandidate>;
+  wildcardProfiles: readonly CompiledSiteProfileCandidate[];
+}
+
+export interface CompiledPolicyContext {
+  excludedHostRules: CompiledExcludedHostRules;
+  siteProfileRules: CompiledSiteProfileRules;
+}
+
 export type SettingsSchemaVersion = 1 | 2;
 
 export interface StoredSettingsV1 {
@@ -115,6 +138,13 @@ export type SuspendReason =
 export interface SuspendDecision {
   shouldSuspend: boolean;
   reason: SuspendReason;
+}
+
+export interface SweepRunStats {
+  evaluatedTabs: number;
+  suspendedTabs: number;
+  failedUpdates: number;
+  durationMs: number;
 }
 
 export interface SuspendDiagnosticsRequest {

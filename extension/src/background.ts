@@ -4,8 +4,10 @@ import {
   isMeaningfulTabUpdatedChangeInfo,
   isStorageOnChangedMap,
   type DecodedSuspendPayload,
+  type CompiledPolicyContext,
   type RecoveryEntry,
   type Settings,
+  type SweepRunStats,
   type SuspendDiagnosticsResponse,
   type StorageChange,
   type SuspendPayload,
@@ -14,6 +16,7 @@ import {
 import { DEFAULT_SETTINGS, SETTINGS_STORAGE_KEY, decodeStoredSettings, loadSettingsFromStorage } from "./settings-store.js";
 import { loadRecoveryFromStorage, saveRecoveryToStorage } from "./recovery-store.js";
 import { isSuspendedDataUrl as isGeneratedSuspendedDataUrl } from "./suspended-payload.js";
+import { compilePolicyContext } from "./matcher.js";
 import { createPersistQueue } from "./background/persist-queue.js";
 import type { PersistErrorContext } from "./background/persist-queue.js";
 import { createSweepCoordinator } from "./background/sweep-coordinator.js";
@@ -26,6 +29,12 @@ const LOG_PREFIX = "[tab-suspender]";
 const MINUTE_MS = 60_000;
 const SUSPEND_SWEEP_ALARM = "suspend-sweep-v1";
 const SUSPEND_SWEEP_PERIOD_MINUTES = 1;
+const MAX_SWEEP_BACKOFF_MINUTES = 5;
+const HEAVY_SWEEP_EVALUATED_TABS_THRESHOLD = 400;
+const HEAVY_SWEEP_DURATION_MS_THRESHOLD = 750;
+const HEAVY_SWEEP_FAILED_UPDATES_THRESHOLD = 5;
+const LIGHT_SWEEP_EVALUATED_TABS_THRESHOLD = 150;
+const LIGHT_SWEEP_DURATION_MS_THRESHOLD = 250;
 
 type ActivatedInfo = {
   tabId: number;
@@ -40,7 +49,10 @@ type BackgroundRuntimeState = {
   recoveryEntries: RecoveryEntry[];
   focusedWindowId: number | null;
   currentSettings: Settings;
+  compiledPolicyContext: CompiledPolicyContext;
   settingsTransitionEpoch: number;
+  sweepBackoffMinutes: number;
+  lastSweepStats: SweepRunStats | null;
   runtimeReady: Promise<void>;
 };
 
@@ -55,14 +67,21 @@ type BackgroundTestingApi = {
   buildSuspendedUrl: (payload: SuspendPayload) => string;
   decodeSuspendedUrl: (url: string) => DecodedSuspendPayload | null;
   isSuspendedDataUrl: (url: string | undefined) => boolean;
+  getSweepBackoffMinutes: () => number;
+  getLastSweepStats: () => SweepRunStats | null;
 };
 
 function createInitialRuntimeState(): BackgroundRuntimeState {
+  const initialSettings = cloneSettings(DEFAULT_SETTINGS);
+
   return {
     recoveryEntries: [],
     focusedWindowId: null,
-    currentSettings: cloneSettings(DEFAULT_SETTINGS),
+    currentSettings: initialSettings,
+    compiledPolicyContext: compilePolicyContext(initialSettings),
     settingsTransitionEpoch: 0,
+    sweepBackoffMinutes: 0,
+    lastSweepStats: null,
     runtimeReady: Promise.resolve()
   };
 }
@@ -96,6 +115,37 @@ function cloneSettings(settings: Settings): Settings {
       }
     }))
   };
+}
+
+function clampSweepBackoffMinutes(value: number): number {
+  return Math.min(MAX_SWEEP_BACKOFF_MINUTES, Math.max(0, Math.floor(value)));
+}
+
+function getEffectiveSweepIntervalMinutes(settings: Settings, sweepBackoffMinutes: number): number {
+  const baseInterval = computeSweepIntervalMinutes(settings);
+  return Math.min(30, baseInterval + clampSweepBackoffMinutes(sweepBackoffMinutes));
+}
+
+function computeNextSweepBackoffMinutes(currentBackoffMinutes: number, stats: SweepRunStats): number {
+  const isHeavySweep =
+    stats.evaluatedTabs >= HEAVY_SWEEP_EVALUATED_TABS_THRESHOLD ||
+    stats.durationMs >= HEAVY_SWEEP_DURATION_MS_THRESHOLD ||
+    stats.failedUpdates >= HEAVY_SWEEP_FAILED_UPDATES_THRESHOLD;
+
+  if (isHeavySweep) {
+    return clampSweepBackoffMinutes(currentBackoffMinutes + 1);
+  }
+
+  const isLightSweep =
+    stats.evaluatedTabs < LIGHT_SWEEP_EVALUATED_TABS_THRESHOLD &&
+    stats.durationMs < LIGHT_SWEEP_DURATION_MS_THRESHOLD &&
+    stats.failedUpdates === 0;
+
+  if (isLightSweep) {
+    return clampSweepBackoffMinutes(currentBackoffMinutes - 1);
+  }
+
+  return currentBackoffMinutes;
 }
 
 function normalizeError(error: unknown): Error {
@@ -272,6 +322,7 @@ function tryCommitSettingsTransition(epoch: number, settings: Settings): boolean
   }
 
   runtimeState.currentSettings = cloneSettings(settings);
+  runtimeState.compiledPolicyContext = compilePolicyContext(runtimeState.currentSettings);
   return true;
 }
 
@@ -321,6 +372,7 @@ const suspendRunner = createSuspendRunner({
   waitForRuntimeReady: () => runtimeState.runtimeReady,
   getCurrentEpochMinute,
   getCurrentSettings: () => runtimeState.currentSettings,
+  getCompiledPolicyContext: () => runtimeState.compiledPolicyContext,
   getActivityForTab: (tabId) => activityRuntime.getActivityForTab(tabId),
   ensureTabActivityBaseline: (tab, nowMinute) => activityRuntime.ensureTabActivityBaseline(tab, nowMinute),
   markTabUpdated: (tabId, windowId, minute) => activityRuntime.markTabUpdated(tabId, windowId, minute),
@@ -333,15 +385,38 @@ const suspendRunner = createSuspendRunner({
 });
 
 const sweepCoordinator = createSweepCoordinator({
-  runSweep: (minute) => suspendRunner.runSuspendSweep(minute),
+  runSweep: async (minute) => {
+    const stats = await suspendRunner.runSuspendSweep(minute);
+    applySweepBackoffFromStats(stats, minute);
+  },
   onSweepError: (error) => {
     log("Suspend sweep run failed.", error);
   }
 });
 
 function alignSweepCadenceAfterSettingsChange(nowMinute = getCurrentEpochMinute()): void {
-  const interval = computeSweepIntervalMinutes(runtimeState.currentSettings);
+  const interval = getEffectiveSweepIntervalMinutes(runtimeState.currentSettings, runtimeState.sweepBackoffMinutes);
   sweepCoordinator.alignDueCandidate(nowMinute, nowMinute + interval);
+}
+
+function applySweepBackoffFromStats(stats: SweepRunStats, nowMinute: number): void {
+  runtimeState.lastSweepStats = {
+    evaluatedTabs: stats.evaluatedTabs,
+    suspendedTabs: stats.suspendedTabs,
+    failedUpdates: stats.failedUpdates,
+    durationMs: stats.durationMs
+  };
+
+  const nextBackoffMinutes = computeNextSweepBackoffMinutes(runtimeState.sweepBackoffMinutes, stats);
+
+  if (nextBackoffMinutes === runtimeState.sweepBackoffMinutes) {
+    return;
+  }
+
+  runtimeState.sweepBackoffMinutes = nextBackoffMinutes;
+  sweepCoordinator.setDueMinute(
+    nowMinute + getEffectiveSweepIntervalMinutes(runtimeState.currentSettings, runtimeState.sweepBackoffMinutes)
+  );
 }
 
 function handleStorageSettingsChange(changes: unknown, areaName: string): void {
@@ -562,7 +637,10 @@ chrome.alarms.onAlarm.addListener((alarm: AlarmInfo | undefined) => {
     return;
   }
 
-  sweepCoordinator.markRan(nowMinute, computeSweepIntervalMinutes(runtimeState.currentSettings));
+  sweepCoordinator.markRan(
+    nowMinute,
+    getEffectiveSweepIntervalMinutes(runtimeState.currentSettings, runtimeState.sweepBackoffMinutes)
+  );
   void sweepCoordinator.requestSweep(nowMinute);
 });
 
@@ -612,7 +690,7 @@ export const __testing: BackgroundTestingApi = {
     runtimeState.focusedWindowId = null;
   },
   runSuspendSweep(nowMinute?: number): Promise<void> {
-    return suspendRunner.runSuspendSweep(nowMinute);
+    return suspendRunner.runSuspendSweep(nowMinute).then(() => undefined);
   },
   waitForRuntimeReady(): Promise<void> {
     return runtimeState.runtimeReady;
@@ -634,5 +712,20 @@ export const __testing: BackgroundTestingApi = {
   },
   isSuspendedDataUrl(url: string | undefined): boolean {
     return isGeneratedSuspendedDataUrl(url);
+  },
+  getSweepBackoffMinutes(): number {
+    return runtimeState.sweepBackoffMinutes;
+  },
+  getLastSweepStats(): SweepRunStats | null {
+    if (!runtimeState.lastSweepStats) {
+      return null;
+    }
+
+    return {
+      evaluatedTabs: runtimeState.lastSweepStats.evaluatedTabs,
+      suspendedTabs: runtimeState.lastSweepStats.suspendedTabs,
+      failedUpdates: runtimeState.lastSweepStats.failedUpdates,
+      durationMs: runtimeState.lastSweepStats.durationMs
+    };
   }
 };

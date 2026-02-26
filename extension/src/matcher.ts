@@ -1,4 +1,12 @@
-import type { SiteProfile, SiteProfileOverrides } from "./types.js";
+import type {
+  CompiledExcludedHostRules,
+  CompiledPolicyContext,
+  CompiledSiteProfileCandidate,
+  CompiledSiteProfileRules,
+  Settings,
+  SiteProfile,
+  SiteProfileOverrides
+} from "./types.js";
 
 const WILDCARD_PREFIX = "*.";
 
@@ -154,10 +162,6 @@ function isValidProfileId(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function getHostRuleTargetLength(hostRule: string): number {
-  return hostRule.startsWith(WILDCARD_PREFIX) ? hostRule.length - WILDCARD_PREFIX.length : hostRule.length;
-}
-
 function isWildcardRule(hostRule: string): boolean {
   return hostRule.startsWith(WILDCARD_PREFIX);
 }
@@ -262,34 +266,63 @@ export function normalizeSiteProfiles(
   };
 }
 
-export function matchesExcludedHost(hostname: string, excludedHosts: string[]): boolean {
+function matchesNormalizedHostByWildcardTarget(normalizedHost: string, wildcardTarget: string): boolean {
+  if (normalizedHost.length <= wildcardTarget.length) {
+    return false;
+  }
+
+  return normalizedHost.endsWith(`.${wildcardTarget}`);
+}
+
+export function compileExcludedHostRules(excludedHosts: string[]): CompiledExcludedHostRules {
+  const exactHosts = new Set<string>();
+  const wildcardTargets: string[] = [];
+  const wildcardSeen = new Set<string>();
+
+  for (const rule of excludedHosts) {
+    if (rule.startsWith(WILDCARD_PREFIX)) {
+      const target = rule.slice(WILDCARD_PREFIX.length);
+
+      if (wildcardSeen.has(target)) {
+        continue;
+      }
+
+      wildcardSeen.add(target);
+      wildcardTargets.push(target);
+      continue;
+    }
+
+    exactHosts.add(rule);
+  }
+
+  return {
+    exactHosts,
+    wildcardTargets
+  };
+}
+
+export function matchesExcludedHostInCompiledRules(hostname: string, rules: CompiledExcludedHostRules): boolean {
   const normalizedHost = normalizeRuntimeHostname(hostname);
 
   if (!normalizedHost) {
     return false;
   }
 
-  for (const rule of excludedHosts) {
-    if (rule.startsWith(WILDCARD_PREFIX)) {
-      const wildcardTarget = rule.slice(WILDCARD_PREFIX.length);
+  if (rules.exactHosts.has(normalizedHost)) {
+    return true;
+  }
 
-      if (normalizedHost.length <= wildcardTarget.length) {
-        continue;
-      }
-
-      if (normalizedHost.endsWith(`.${wildcardTarget}`)) {
-        return true;
-      }
-
-      continue;
-    }
-
-    if (normalizedHost === rule) {
+  for (const wildcardTarget of rules.wildcardTargets) {
+    if (matchesNormalizedHostByWildcardTarget(normalizedHost, wildcardTarget)) {
       return true;
     }
   }
 
   return false;
+}
+
+export function matchesExcludedHost(hostname: string, excludedHosts: string[]): boolean {
+  return matchesExcludedHostInCompiledRules(hostname, compileExcludedHostRules(excludedHosts));
 }
 
 export function isExcludedUrlByHost(url: string | null | undefined, excludedHosts: string[]): boolean {
@@ -305,58 +338,78 @@ export function isExcludedUrlByHost(url: string | null | undefined, excludedHost
   }
 }
 
-export function findMatchingSiteProfile(hostname: string, siteProfiles: SiteProfile[]): SiteProfile | null {
-  const normalizedHost = normalizeRuntimeHostname(hostname);
-
-  if (!normalizedHost || siteProfiles.length === 0) {
-    return null;
-  }
-
-  let bestIndex = -1;
-  let bestProfile: SiteProfile | null = null;
+export function compileSiteProfileRules(siteProfiles: SiteProfile[]): CompiledSiteProfileRules {
+  const exactProfilesByHost = new Map<string, CompiledSiteProfileCandidate>();
+  const wildcardProfiles: CompiledSiteProfileCandidate[] = [];
 
   for (let index = 0; index < siteProfiles.length; index += 1) {
     const profile = siteProfiles[index];
+    const wildcard = isWildcardRule(profile.hostRule);
+    const targetHost = wildcard ? profile.hostRule.slice(WILDCARD_PREFIX.length) : profile.hostRule;
+    const candidate: CompiledSiteProfileCandidate = {
+      profile,
+      targetHost,
+      wildcard,
+      sourceIndex: index,
+      targetLength: targetHost.length
+    };
 
-    if (!matchesExcludedHost(normalizedHost, [profile.hostRule])) {
+    if (wildcard) {
+      wildcardProfiles.push(candidate);
       continue;
     }
 
-    if (!bestProfile) {
-      bestProfile = profile;
-      bestIndex = index;
-      continue;
-    }
-
-    const bestIsWildcard = isWildcardRule(bestProfile.hostRule);
-    const candidateIsWildcard = isWildcardRule(profile.hostRule);
-
-    if (bestIsWildcard !== candidateIsWildcard) {
-      if (!candidateIsWildcard) {
-        bestProfile = profile;
-        bestIndex = index;
-      }
-      continue;
-    }
-
-    const bestTargetLength = getHostRuleTargetLength(bestProfile.hostRule);
-    const candidateTargetLength = getHostRuleTargetLength(profile.hostRule);
-
-    if (candidateTargetLength > bestTargetLength) {
-      bestProfile = profile;
-      bestIndex = index;
-      continue;
-    }
-
-    if (candidateTargetLength < bestTargetLength) {
-      continue;
-    }
-
-    if (index < bestIndex) {
-      bestProfile = profile;
-      bestIndex = index;
+    if (!exactProfilesByHost.has(targetHost)) {
+      exactProfilesByHost.set(targetHost, candidate);
     }
   }
 
-  return bestProfile;
+  wildcardProfiles.sort((left, right) => {
+    if (left.targetLength !== right.targetLength) {
+      return right.targetLength - left.targetLength;
+    }
+
+    return left.sourceIndex - right.sourceIndex;
+  });
+
+  return {
+    exactProfilesByHost,
+    wildcardProfiles
+  };
+}
+
+export function findMatchingSiteProfileInCompiledRules(
+  hostname: string,
+  compiledRules: CompiledSiteProfileRules
+): SiteProfile | null {
+  const normalizedHost = normalizeRuntimeHostname(hostname);
+
+  if (!normalizedHost) {
+    return null;
+  }
+
+  const exactMatch = compiledRules.exactProfilesByHost.get(normalizedHost);
+
+  if (exactMatch) {
+    return exactMatch.profile;
+  }
+
+  for (const candidate of compiledRules.wildcardProfiles) {
+    if (matchesNormalizedHostByWildcardTarget(normalizedHost, candidate.targetHost)) {
+      return candidate.profile;
+    }
+  }
+
+  return null;
+}
+
+export function findMatchingSiteProfile(hostname: string, siteProfiles: SiteProfile[]): SiteProfile | null {
+  return findMatchingSiteProfileInCompiledRules(hostname, compileSiteProfileRules(siteProfiles));
+}
+
+export function compilePolicyContext(settings: Settings): CompiledPolicyContext {
+  return {
+    excludedHostRules: compileExcludedHostRules(settings.excludedHosts),
+    siteProfileRules: compileSiteProfileRules(settings.siteProfiles)
+  };
 }
