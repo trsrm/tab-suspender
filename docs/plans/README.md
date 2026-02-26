@@ -14,9 +14,18 @@ This directory stores detailed plan specs and historical execution records.
 - `plan-8-qa-hardening.md`
 - `plan-9-technical-debt-contributor-docs.md`
 - `plan-10-suspended-page-ux-polish-and-extension-icon.md`
+- `plan-11-analysis-and-plan-generation.md`
 - `plan-13-reliable-auto-suspend-timeout.md`
 - `plan-14-reload-safe-recovery.md`
 - `plan-15-safari-cpu-reduction.md`
+- `plan-17-kiss-simplification-opportunities.md`
+- `plan-18-yagni-pruning-opportunities.md`
+- `plan-19-dry-consolidation-opportunities.md`
+- `plan-20-performance-opportunities.md`
+- `plan-21-reliability-hardening-opportunities.md`
+- `plan-22-simplicity-ux-and-maintenance.md`
+- `plan-23-over-engineering-reduction.md`
+- `plan-24-anti-patterns-and-code-health.md`
 
 ## Usage
 - Keep `ROADMAP.md` concise and status-focused.

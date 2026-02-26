@@ -61,11 +61,20 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 8: QA Hardening and Release Readiness (Local) ([details](docs/plans/plan-8-qa-hardening.md))
 - [x] Plan 9: Technical debt and contributor docs (CONTRIBUTING, code comments, cleanup) ([details](docs/plans/plan-9-technical-debt-contributor-docs.md))
 - [x] Plan 10: Suspended page UX polish + extension icon coverage ([details](docs/plans/plan-10-suspended-page-ux-polish-and-extension-icon.md))
-- [ ] Plan 11: (draft) Analyze project for KISS, YAGNI, DRY, performance, reliability, simplicity, over-engineering, and other anti-patterns; create separate plans for each perspective (don't do any changes).
+- [x] Plan 11: Multi-lens architecture review + follow-up draft plan generation (analysis-only, no code changes) ([details](docs/plans/plan-11-analysis-and-plan-generation.md))
 - [ ] Plan 12: (draft) Analyze and suggest features, create separate plans for each feature, but do not implement any of them.
 - [x] Plan 13: Reliable auto-suspend timeout (focus-based + restart-safe) ([details](docs/plans/plan-13-reliable-auto-suspend-timeout.md))
 - [x] Plan 14: Reload-safe recovery ledger + options reopen flow ([details](docs/plans/plan-14-reload-safe-recovery.md))
 - [x] Plan 15: Safari CPU reduction via adaptive sweep cadence + candidate filtering ([details](docs/plans/plan-15-safari-cpu-reduction.md))
+- [ ] Plan 16: (draft) Package a Safari Web Extension that can be installed to Safari (XCode build?)
+- [ ] Plan 17: (draft) KISS simplification opportunities ([details](docs/plans/plan-17-kiss-simplification-opportunities.md))
+- [ ] Plan 18: (draft) YAGNI pruning opportunities ([details](docs/plans/plan-18-yagni-pruning-opportunities.md))
+- [ ] Plan 19: (draft) DRY consolidation opportunities ([details](docs/plans/plan-19-dry-consolidation-opportunities.md))
+- [ ] Plan 20: (draft) Performance opportunities ([details](docs/plans/plan-20-performance-opportunities.md))
+- [ ] Plan 21: (draft) Reliability hardening opportunities ([details](docs/plans/plan-21-reliability-hardening-opportunities.md))
+- [ ] Plan 22: (draft) Simplicity UX and maintenance opportunities ([details](docs/plans/plan-22-simplicity-ux-and-maintenance.md))
+- [ ] Plan 23: (draft) Over-engineering reduction opportunities ([details](docs/plans/plan-23-over-engineering-reduction.md))
+- [ ] Plan 24: (draft) Anti-pattern and code-health opportunities ([details](docs/plans/plan-24-anti-patterns-and-code-health.md))
 
 ## Governance Rules
 - Execute one plan per implementation turn.
@@ -136,6 +145,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-018**: Suspend sweep execution remains on a 1-minute alarm tick, but full sweep work is cadence-gated (`1..5` minutes) and candidate-filtered to reduce Safari CPU load under high tab counts.
   - Alternatives: fixed 1-minute full sweeps, coarser alarm period changes, or user-configurable sweep interval.
   - Impact: materially lower background runtime churn while preserving existing suspend safety guards and action-click behavior.
+- **D-019**: Post-Plan-11 quality drafts use fixed lens definitions and a shared scoring rubric (`Impact`, `Effort`, `Confidence`, `Priority Score = (Impact * Confidence) - Effort`) for cross-plan ranking consistency.
+  - Alternatives: ad hoc per-plan scoring, or no shared numeric prioritization.
+  - Impact: comparable prioritization across KISS/YAGNI/DRY/performance/reliability/simplicity/over-engineering/anti-patterns drafts and clearer sequencing decisions.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -154,3 +166,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-25: Completed Plan 13 reliable auto-suspend timeout with focus-based idle semantics, persisted activity hydration/persistence, and restart-durability coverage.
 - 2026-02-26: Completed Plan 14 reload-safe recovery with versioned suspended-tab recovery storage, options-based reopen UI, and regression coverage for recovery persistence/failure handling.
 - 2026-02-26: Completed Plan 15 Safari CPU reduction with adaptive sweep cadence gating, filtered sweep candidate queries with fallback, and suspended-page self-churn avoidance.
+- 2026-02-26: Completed Plan 11 analysis-only multi-lens review and generated draft Plans 17-24 with standardized scoring/rubric metadata.
