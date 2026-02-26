@@ -122,6 +122,7 @@ function createDom() {
     saveButton: createElement(),
     status: createElement({ textContent: "Loading settings..." }),
     recoveryEmpty: createElement({ textContent: "Loading recently suspended tabs..." }),
+    recoveryStatus: createElement({ textContent: "" }),
     recoveryList: createNode("ul")
   };
 
@@ -359,7 +360,8 @@ test("options page renders recently suspended list and reopens valid entries", {
 
   assert.equal(tabsCreateCalls.length, 1);
   assert.deepEqual(tabsCreateCalls[0], { url: "https://example.com/a" });
-  assert.equal(elements.status.textContent, "Reopened suspended tab in a new tab.");
+  assert.equal(elements.status.textContent, "Settings loaded.");
+  assert.equal(elements.recoveryStatus.textContent, "Reopened suspended tab in a new tab.");
 });
 
 test("options page disables reopen for invalid recovery URLs", { concurrency: false }, async () => {
@@ -382,6 +384,36 @@ test("options page disables reopen for invalid recovery URLs", { concurrency: fa
   assert.equal(elements.recoveryEmpty.hidden, false);
   assert.equal(elements.recoveryEmpty.textContent, "No recently suspended tabs yet.");
   assert.equal(tabsCreateCalls.length, 0);
+});
+
+test("recovery reopen failure updates recovery status without overwriting settings status", { concurrency: false }, async () => {
+  const { elements } = await importOptionsWithMocks({
+    storageSeed: {
+      [RECOVERY_STORAGE_KEY]: {
+        schemaVersion: 1,
+        entries: [
+          {
+            url: "https://example.com/a",
+            title: "A",
+            suspendedAtMinute: 100
+          }
+        ]
+      }
+    },
+    tabsCreateResponder() {
+      throw new Error("create failed");
+    }
+  });
+
+  const firstRow = elements.recoveryList.children[0];
+  const reopenButton = firstRow.children[1];
+  reopenButton.click();
+  await flushAsyncWork();
+  await flushAsyncWork();
+
+  assert.equal(elements.status.textContent, "Settings loaded.");
+  assert.equal(elements.recoveryStatus.textContent, "Failed to reopen suspended tab.");
+  assert.equal(reopenButton.disabled, false);
 });
 
 test("recovery list reuses unchanged row nodes across rerenders", { concurrency: false }, async () => {

@@ -72,7 +72,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 19: DRY consolidation opportunities ([details](docs/plans/plan-19-dry-consolidation-opportunities.md))
 - [x] Plan 20: Performance opportunities ([details](docs/plans/plan-20-performance-opportunities.md))
 - [x] Plan 21: Reliability hardening opportunities ([details](docs/plans/plan-21-reliability-hardening-opportunities.md))
-- [ ] Plan 22: (draft) Simplicity UX and maintenance opportunities ([details](docs/plans/plan-22-simplicity-ux-and-maintenance.md))
+- [x] Plan 22: Simplicity UX and maintenance opportunities ([details](docs/plans/plan-22-simplicity-ux-and-maintenance.md))
 - [ ] Plan 23: (draft) Over-engineering reduction opportunities ([details](docs/plans/plan-23-over-engineering-reduction.md))
 - [ ] Plan 24: (draft) Anti-pattern and code-health opportunities ([details](docs/plans/plan-24-anti-patterns-and-code-health.md))
 - [ ] Plan 25: (draft) Scheduled snooze and quiet hours ([details](docs/plans/plan-25-scheduled-snooze-and-quiet-hours.md))
@@ -183,6 +183,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-028**: Reliability hardening adds monotonic settings transition ordering, bounded persistence retry/backoff (`2` retries starting at `50ms`), and defensive sweep pending-state reset on failure/new independent runs.
   - Alternatives: rely on current best-effort ordering with single-attempt persistence and implicit coordinator state assumptions.
   - Impact: improved determinism across startup/update races and storage/scheduler failure paths without changing policy semantics or storage schema.
+- **D-029**: Options UI status messaging is now split into separate settings and recovery channels, while suspended-page copy/status strings are centralized in grouped message maps with explicit invalid-reason mapping.
+  - Alternatives: keep a single shared options status region and scattered suspended-page constants.
+  - Impact: lower UI-state coupling and reduced message-drift risk with no behavior, policy, or storage-contract changes.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -211,3 +214,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-26: Completed Plan 19 DRY consolidation by centralizing captured-time formatting and suspended-title truncation constants with parity tests.
 - 2026-02-26: Completed Plan 20 performance opportunities by removing repeated suspend-path URL parsing, optimizing activity persistence snapshots, and adding keyed recovery-list rerender reconciliation.
 - 2026-02-26: Completed Plan 21 reliability hardening with settings transition epoch guards, bounded persistence retries/backoff, and sweep failure-path invariant coverage.
+- 2026-02-26: Completed Plan 22 simplicity UX/maintenance pass by splitting options settings vs recovery status channels, centralizing suspended-page message maps, and adding status-isolation regression coverage.

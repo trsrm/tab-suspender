@@ -25,7 +25,8 @@ type OptionsElements = {
   skipAudibleInput: HTMLInputElement;
   excludedHostsInput: HTMLTextAreaElement;
   saveButton: HTMLButtonElement;
-  statusEl: HTMLElement;
+  settingsStatusEl: HTMLElement;
+  recoveryStatusEl: HTMLElement;
   recoveryList: HTMLElement;
   recoveryEmpty: HTMLElement;
 };
@@ -38,7 +39,8 @@ function getOptionsElements(): OptionsElements | null {
   const skipAudibleInput = document.getElementById("skipAudible");
   const excludedHostsInput = document.getElementById("excludedHosts");
   const saveButton = document.getElementById("saveButton");
-  const statusEl = document.getElementById("status");
+  const settingsStatusEl = document.getElementById("status");
+  const recoveryStatusEl = document.getElementById("recoveryStatus");
   const recoveryList = document.getElementById("recoveryList");
   const recoveryEmpty = document.getElementById("recoveryEmpty");
 
@@ -50,7 +52,8 @@ function getOptionsElements(): OptionsElements | null {
     !skipAudibleInput ||
     !excludedHostsInput ||
     !saveButton ||
-    !statusEl ||
+    !settingsStatusEl ||
+    !recoveryStatusEl ||
     !recoveryList ||
     !recoveryEmpty
   ) {
@@ -65,14 +68,19 @@ function getOptionsElements(): OptionsElements | null {
     skipAudibleInput: skipAudibleInput as HTMLInputElement,
     excludedHostsInput: excludedHostsInput as HTMLTextAreaElement,
     saveButton: saveButton as HTMLButtonElement,
-    statusEl: statusEl as HTMLElement,
+    settingsStatusEl: settingsStatusEl as HTMLElement,
+    recoveryStatusEl: recoveryStatusEl as HTMLElement,
     recoveryList: recoveryList as HTMLElement,
     recoveryEmpty: recoveryEmpty as HTMLElement
   };
 }
 
-function setStatus(elements: OptionsElements, message: string): void {
-  elements.statusEl.textContent = message;
+function setSettingsStatus(elements: OptionsElements, message: string): void {
+  elements.settingsStatusEl.textContent = message;
+}
+
+function setRecoveryStatus(elements: OptionsElements, message: string): void {
+  elements.recoveryStatusEl.textContent = message;
 }
 
 function setBusy(elements: OptionsElements, busy: boolean): void {
@@ -231,10 +239,10 @@ function createRecoveryRow(elements: OptionsElements, entry: RecoveryItem): HTML
       reopenButton.disabled = true;
       void createTabWithCompatibility(validation.url)
         .then(() => {
-          setStatus(elements, "Reopened suspended tab in a new tab.");
+          setRecoveryStatus(elements, "Reopened suspended tab in a new tab.");
         })
         .catch(() => {
-          setStatus(elements, "Failed to reopen suspended tab.");
+          setRecoveryStatus(elements, "Failed to reopen suspended tab.");
           reopenButton.disabled = false;
         });
     });
@@ -290,17 +298,17 @@ async function loadAndRenderRecovery(elements: OptionsElements): Promise<void> {
 }
 
 async function loadAndRenderSettings(elements: OptionsElements): Promise<void> {
-  setStatus(elements, "Loading settings...");
+  setSettingsStatus(elements, "Loading settings...");
   setBusy(elements, true);
   clearIdleHoursError(elements);
 
   try {
     const settings = await loadSettingsFromStorage();
     renderSettings(elements, settings);
-    setStatus(elements, "Settings loaded.");
+    setSettingsStatus(elements, "Settings loaded.");
   } catch {
     renderSettings(elements, DEFAULT_SETTINGS);
-    setStatus(elements, "Failed to load settings. Using defaults.");
+    setSettingsStatus(elements, "Failed to load settings. Using defaults.");
   } finally {
     setBusy(elements, false);
   }
@@ -316,12 +324,12 @@ async function handleSave(elements: OptionsElements): Promise<void> {
       elements,
       `Enter a whole number from ${MIN_IDLE_HOURS} to ${MAX_IDLE_HOURS}.`
     );
-    setStatus(elements, "Settings were not saved.");
+    setSettingsStatus(elements, "Settings were not saved.");
     return;
   }
 
   setBusy(elements, true);
-  setStatus(elements, "Saving settings...");
+  setSettingsStatus(elements, "Saving settings...");
 
   const normalizedExcludedHosts = normalizeExcludedHostEntries(elements.excludedHostsInput.value, {
     maxEntries: MAX_EXCLUDED_HOSTS,
@@ -339,15 +347,15 @@ async function handleSave(elements: OptionsElements): Promise<void> {
     renderSettings(elements, persisted.settings);
     if (normalizedExcludedHosts.ignoredInvalidCount > 0) {
       const suffix = normalizedExcludedHosts.ignoredInvalidCount === 1 ? "entry" : "entries";
-      setStatus(
+      setSettingsStatus(
         elements,
         `Settings saved. Ignored ${normalizedExcludedHosts.ignoredInvalidCount} invalid excluded host ${suffix}.`
       );
     } else {
-      setStatus(elements, "Settings saved.");
+      setSettingsStatus(elements, "Settings saved.");
     }
   } catch {
-    setStatus(elements, "Failed to save settings.");
+    setSettingsStatus(elements, "Failed to save settings.");
   } finally {
     setBusy(elements, false);
   }

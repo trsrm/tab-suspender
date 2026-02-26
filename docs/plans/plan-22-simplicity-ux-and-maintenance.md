@@ -1,88 +1,76 @@
 # Plan 22 - Simplicity UX and Maintenance
 
 ## Status
-Draft
+Implemented
 
 ## Goal
-Reduce UX and maintenance complexity in options/suspended views while preserving all existing guardrails.
+Deliver low-effort, high-confidence UX/maintenance simplifications in options and suspended views while preserving existing guardrails and behavior contracts.
 
 ## Scope
-- Simplify options-page status and recovery interactions.
-- Clarify user messaging without adding new workflows.
+- Split options-page status into independent channels:
+  - settings status
+  - recovery action status
+- Centralize suspended-page user-facing status/copy messaging in grouped maps with explicit reason mapping.
+- Add focused regression coverage for status-channel isolation.
 
 ## Non-goals
-- No visual redesign requiring asset overhaul.
-- No changes to restore URL safety policy.
-
-## Lens Definition
-Simplicity here means lowering user and maintainer cognitive load with clearer, smaller UI-state logic.
-
-## Scoring Model
-- `Impact` (1-5)
-- `Effort` (1-5)
-- `Confidence` (1-5)
-- `Priority Score = (Impact * Confidence) - Effort`
-
-## Recommendations
-### S22-1
-- Finding: options status text multiplexes load/save/reopen/failure states through one free-form message region.
-- Evidence: `setStatus(...)` in `options.ts` is reused for unrelated workflows.
-- Risk if unchanged: ambiguous status messages and brittle UI assertions.
-- Proposed change: split status channels into scoped regions (settings status vs recovery action status).
-- Estimated impact: clearer UX feedback and cleaner UI tests.
-- Complexity: low-to-medium.
-- Dependencies: update `tests/settings-ui.test.mjs` expectations.
-- Rollback: restore single status channel.
-- Score: Impact 3, Effort 2, Confidence 4, Priority Score 10.
-
-### S22-2
-- Finding: recovery row rendering and action wiring are implemented inline, mixing DOM creation and behavior logic.
-- Evidence: `renderRecoveryList` creates elements and click handlers in one large function.
-- Risk if unchanged: harder to test and evolve row-level behavior.
-- Proposed change: extract pure row view-model + row-render helper for composable tests.
-- Estimated impact: maintainability improvement with stable behavior.
-- Complexity: medium.
-- Dependencies: settings UI tests and accessibility checks.
-- Rollback: restore inline row rendering logic.
-- Score: Impact 3, Effort 3, Confidence 4, Priority Score 9.
-
-### S22-3
-- Finding: suspended-page copy/restore statuses are independent but represented through ad hoc text constants.
-- Evidence: `suspended.ts` status constants are local and not grouped by interaction intent.
-- Risk if unchanged: copy drift and inconsistent tone across future changes.
-- Proposed change: centralize view text in grouped message maps and keep explicit state transition table.
-- Estimated impact: small but meaningful UX consistency gain.
-- Complexity: low.
-- Dependencies: restore-flow tests.
-- Rollback: revert grouped message abstraction.
-- Score: Impact 2, Effort 1, Confidence 4, Priority Score 7.
+- No recovery-list structural refactor (view-model/row-helper extraction deferred).
+- No policy, URL safety, or storage schema/version changes.
+- No UX workflow additions or layout redesign.
 
 ## Implementation Steps
-1. Split options/suspended status logic by interaction domain.
-2. Extract row/message helpers for easier testing.
-3. Re-run UI-related test suites and accessibility checks.
+1. Added a dedicated `recoveryStatus` live-region in `extension/options.html`.
+2. Updated `extension/src/options.ts`:
+   - expanded `OptionsElements` with separate `settingsStatusEl` and `recoveryStatusEl`.
+   - replaced shared `setStatus` with scoped `setSettingsStatus` and `setRecoveryStatus`.
+   - routed settings load/save/validation messages to settings status only.
+   - routed recovery reopen success/failure messages to recovery status only.
+3. Updated `extension/src/suspended.ts`:
+   - replaced ad hoc message constants with grouped `messages` map (`title`, `url`, `restore`, `copy`).
+   - kept all existing user-visible strings unchanged.
+   - mapped invalid restore reasons through explicit keyed lookup helper.
+4. Updated `tests/settings-ui.test.mjs`:
+   - added `recoveryStatus` DOM element in test fixtures.
+   - updated reopen-success assertion to validate status-channel isolation.
+   - added failure-path test asserting recovery failure message does not overwrite settings status.
 
-## Files Expected to Change
+## Files Added/Changed
 - `extension/src/options.ts`
 - `extension/src/suspended.ts`
 - `extension/options.html`
-- `extension/suspended.html`
 - `tests/settings-ui.test.mjs`
-- `tests/restore-flow.test.mjs`
 - `docs/plans/plan-22-simplicity-ux-and-maintenance.md`
 - `ROADMAP.md`
 
-## Test/Evidence Expectations
-- `npm run build`
-- `node --test tests/settings-ui.test.mjs tests/restore-flow.test.mjs`
-- `npm run test`
+## Tests/Evidence
+- Command: `npm run build`
+  - Result: passed.
+- Command: `node --test tests/settings-ui.test.mjs tests/restore-flow.test.mjs`
+  - Result: passed (18 tests, 0 failures).
+- Command: `npm run test`
+  - Result: passed (94 tests, 0 failures).
 
 ## Exit Criteria
-- UI state messaging is clearer and less coupled.
+- Settings and recovery actions use independent options-page status channels.
+- Suspended-page user-facing copy/status text is centralized with explicit reason mappings.
 - Existing restore/reopen behavior remains unchanged.
+- Build, targeted tests, and full tests pass.
 
 ## Rollback
-- Revert Plan 22 files and rerun full tests.
+- Revert Plan 22 files:
+  - `extension/options.html`
+  - `extension/src/options.ts`
+  - `extension/src/suspended.ts`
+  - `tests/settings-ui.test.mjs`
+  - `docs/plans/plan-22-simplicity-ux-and-maintenance.md`
+  - `ROADMAP.md`
+- Re-run `npm run build` and `npm run test`.
 
-## Risks Left
-- Browser-native clipboard behavior still requires manual Safari verification.
+## Decisions
+- Status updates in options are now domain-scoped (settings vs recovery) to prevent unrelated status overwrites.
+- Suspended-page messaging is centralized via grouped maps while preserving exact existing strings for backward-compatible UX/tests.
+- Recovery-list rendering structure was intentionally deferred as a lower-ROI scope item.
+
+## Retrospective
+- What changed: options status responsibilities are separated and suspended-page copy/state mapping is easier to maintain.
+- Risks left: recovery-list rendering internals remain structurally unchanged and can still be improved in a future plan if maintenance cost rises.

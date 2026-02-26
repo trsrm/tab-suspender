@@ -3,13 +3,29 @@ import { formatCapturedAtMinuteUtc } from "./time-format.js";
 import { validateRestorableUrl } from "./url-safety.js";
 
 const MAX_DOCUMENT_TITLE_LENGTH = 80;
-const DEFAULT_TITLE = "Suspended tab";
-const URL_UNAVAILABLE_TEXT = "Original URL is unavailable.";
-const STATUS_READY = "Ready to restore this tab.";
-const STATUS_RESTORING = "Restoring tab...";
-const STATUS_RESTORE_FAILED = "Restore failed. Please try again.";
-const COPY_STATUS_OK = "Original URL copied to clipboard.";
-const COPY_STATUS_FAILED = "Could not copy URL. Copy manually.";
+const messages = {
+  title: {
+    default: "Suspended tab"
+  },
+  url: {
+    unavailable: "Original URL is unavailable."
+  },
+  restore: {
+    ready: "Ready to restore this tab.",
+    restoring: "Restoring tab...",
+    failed: "Restore failed. Please try again.",
+    invalidReason: {
+      missing: "Cannot restore: missing original URL.",
+      tooLong: "Cannot restore: original URL is too long.",
+      invalidProtocol: "Cannot restore: original URL protocol is not supported.",
+      invalidUrl: "Cannot restore: original URL is invalid."
+    }
+  },
+  copy: {
+    ok: "Original URL copied to clipboard.",
+    failed: "Could not copy URL. Copy manually."
+  }
+} as const;
 
 function getSearchParams(): URLSearchParams {
   const search = typeof globalThis.location?.search === "string" ? globalThis.location.search : "";
@@ -17,7 +33,7 @@ function getSearchParams(): URLSearchParams {
 }
 
 function getDisplayTitle(title: string): string {
-  return title.length > 0 ? title : DEFAULT_TITLE;
+  return title.length > 0 ? title : messages.title.default;
 }
 
 function getDocumentTitle(title: string): string {
@@ -32,23 +48,14 @@ function getDisplayUrl(url: string, restorableUrl: string | null): string {
   const trimmedUrl = url.trim();
 
   if (trimmedUrl.length === 0) {
-    return URL_UNAVAILABLE_TEXT;
+    return messages.url.unavailable;
   }
 
   return trimmedUrl;
 }
 
 function getInvalidPayloadStatus(reason: "missing" | "tooLong" | "invalidProtocol" | "invalidUrl"): string {
-  switch (reason) {
-    case "missing":
-      return "Cannot restore: missing original URL.";
-    case "tooLong":
-      return "Cannot restore: original URL is too long.";
-    case "invalidProtocol":
-      return "Cannot restore: original URL protocol is not supported.";
-    case "invalidUrl":
-      return "Cannot restore: original URL is invalid.";
-  }
+  return messages.restore.invalidReason[reason];
 }
 
 const params = getSearchParams();
@@ -80,7 +87,7 @@ document.title = getDocumentTitle(pageTitle);
 if (originalUrlEl) {
   originalUrlEl.textContent = displayUrl;
   originalUrlEl.title = displayUrl;
-  originalUrlEl.disabled = displayUrl === URL_UNAVAILABLE_TEXT;
+  originalUrlEl.disabled = displayUrl === messages.url.unavailable;
 }
 
 if (capturedAtEl) {
@@ -88,29 +95,29 @@ if (capturedAtEl) {
 }
 
 if (statusEl) {
-  statusEl.textContent = restoreUrlValidation.ok ? STATUS_READY : getInvalidPayloadStatus(restoreUrlValidation.reason);
+  statusEl.textContent = restoreUrlValidation.ok ? messages.restore.ready : getInvalidPayloadStatus(restoreUrlValidation.reason);
 }
 
 if (restoreButton) {
   restoreButton.disabled = !restoreUrlValidation.ok;
 }
 
-if (originalUrlEl && displayUrl !== URL_UNAVAILABLE_TEXT) {
+if (originalUrlEl && displayUrl !== messages.url.unavailable) {
   originalUrlEl.addEventListener("click", () => {
     const clipboard = globalThis.navigator?.clipboard;
 
     if (!clipboard || typeof clipboard.writeText !== "function") {
-      setCopyStatus(COPY_STATUS_FAILED);
+      setCopyStatus(messages.copy.failed);
       return;
     }
 
     void clipboard
       .writeText(displayUrl)
       .then(() => {
-        setCopyStatus(COPY_STATUS_OK);
+        setCopyStatus(messages.copy.ok);
       })
       .catch(() => {
-        setCopyStatus(COPY_STATUS_FAILED);
+        setCopyStatus(messages.copy.failed);
       });
   });
 }
@@ -120,14 +127,14 @@ if (restoreButton && restoreUrlValidation.ok) {
     restoreButton.disabled = true;
 
     if (statusEl) {
-      statusEl.textContent = STATUS_RESTORING;
+      statusEl.textContent = messages.restore.restoring;
     }
 
     try {
       globalThis.location.replace(restoreUrlValidation.url);
     } catch {
       if (statusEl) {
-        statusEl.textContent = STATUS_RESTORE_FAILED;
+        statusEl.textContent = messages.restore.failed;
       }
 
       restoreButton.disabled = false;

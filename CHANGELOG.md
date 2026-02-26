@@ -2,7 +2,13 @@
 
 All notable user-facing changes are documented in this file.
 
-Current release: **1.1.5**
+Current release: **1.1.6**
+
+## [1.1.6] - 2026-02-26
+- Split Options page feedback into separate settings and recovery status channels so save/load messages do not overwrite reopen results.
+- Added a dedicated recovery action live-status region for clearer reopen success/failure feedback.
+- Centralized suspended-page restore/copy/unavailable text into grouped message maps with explicit invalid-URL reason mapping.
+- Added regression coverage for status-channel isolation on recovery success and failure flows.
 
 ## [1.1.5] - 2026-02-26
 - Improved startup reliability by making settings updates deterministic when storage hydration and live changes overlap.
