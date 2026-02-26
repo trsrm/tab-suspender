@@ -432,6 +432,87 @@ test("activity persistence coalesces burst updates into a single queued storage 
   assert.equal(writesAfter, writesBefore + 1);
 });
 
+test("activity persistence retries transient storage failures and succeeds without a new event", { concurrency: false }, async () => {
+  setNowMinute(305);
+
+  let activitySetAttempts = 0;
+  let transientFailuresRemaining = 0;
+  const { events, calls, backgroundModule } = await importBackgroundWithMock({
+    storageSetResponder(items) {
+      if (!Object.prototype.hasOwnProperty.call(items, ACTIVITY_STORAGE_KEY)) {
+        return;
+      }
+
+      activitySetAttempts += 1;
+
+      if (transientFailuresRemaining > 0) {
+        transientFailuresRemaining -= 1;
+        throw new Error("transient activity write failure");
+      }
+    }
+  });
+
+  await backgroundModule.__testing.waitForRuntimeReady();
+  backgroundModule.__testing.resetActivityState();
+  await backgroundModule.__testing.flushPersistedActivityWrites();
+
+  const attemptsBefore = activitySetAttempts;
+  transientFailuresRemaining = 2;
+  events.tabsOnActivated.dispatch({ tabId: 77, windowId: 7700 });
+  await backgroundModule.__testing.flushPersistedActivityWrites();
+
+  assert.equal(activitySetAttempts - attemptsBefore, 3);
+  assert.deepEqual(calls.storageData[ACTIVITY_STORAGE_KEY], {
+    schemaVersion: 1,
+    activity: [
+      {
+        tabId: 77,
+        windowId: 7700,
+        lastActiveAtMinute: 305,
+        lastUpdatedAtMinute: 305
+      }
+    ]
+  });
+});
+
+test("activity persistence gives up after bounded retries until next dirty mark", { concurrency: false }, async () => {
+  setNowMinute(306);
+
+  let activitySetAttempts = 0;
+  let failWrites = false;
+  const { events, backgroundModule } = await importBackgroundWithMock({
+    storageSetResponder(items) {
+      if (!Object.prototype.hasOwnProperty.call(items, ACTIVITY_STORAGE_KEY)) {
+        return;
+      }
+
+      activitySetAttempts += 1;
+
+      if (failWrites) {
+        throw new Error("permanent activity write failure");
+      }
+    }
+  });
+
+  await backgroundModule.__testing.waitForRuntimeReady();
+  backgroundModule.__testing.resetActivityState();
+  await backgroundModule.__testing.flushPersistedActivityWrites();
+
+  const attemptsBefore = activitySetAttempts;
+  failWrites = true;
+  events.tabsOnActivated.dispatch({ tabId: 78, windowId: 7800 });
+  await backgroundModule.__testing.flushPersistedActivityWrites();
+  assert.equal(activitySetAttempts - attemptsBefore, 3);
+
+  await flushAsyncWork();
+  await flushAsyncWork();
+  assert.equal(activitySetAttempts - attemptsBefore, 3);
+
+  events.tabsOnActivated.dispatch({ tabId: 79, windowId: 7900 });
+  await backgroundModule.__testing.flushPersistedActivityWrites();
+  assert.equal(activitySetAttempts - attemptsBefore, 6);
+});
+
 test("persisted activity snapshot remains sorted by tabId", { concurrency: false }, async () => {
   setNowMinute(310);
 

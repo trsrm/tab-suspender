@@ -71,7 +71,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 18: YAGNI pruning opportunities (runtime surface + shared storage compatibility adapter) ([details](docs/plans/plan-18-yagni-pruning-opportunities.md))
 - [x] Plan 19: DRY consolidation opportunities ([details](docs/plans/plan-19-dry-consolidation-opportunities.md))
 - [x] Plan 20: Performance opportunities ([details](docs/plans/plan-20-performance-opportunities.md))
-- [ ] Plan 21: (draft) Reliability hardening opportunities ([details](docs/plans/plan-21-reliability-hardening-opportunities.md))
+- [x] Plan 21: Reliability hardening opportunities ([details](docs/plans/plan-21-reliability-hardening-opportunities.md))
 - [ ] Plan 22: (draft) Simplicity UX and maintenance opportunities ([details](docs/plans/plan-22-simplicity-ux-and-maintenance.md))
 - [ ] Plan 23: (draft) Over-engineering reduction opportunities ([details](docs/plans/plan-23-over-engineering-reduction.md))
 - [ ] Plan 24: (draft) Anti-pattern and code-health opportunities ([details](docs/plans/plan-24-anti-patterns-and-code-health.md))
@@ -180,6 +180,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-027**: Plan 20 performance pass centralizes suspend URL analysis into a single metadata-aware validation step, routes internal/excluded/too-long policy checks through precomputed flags, and moves activity persistence to an unsorted write path while preserving deterministic storage ordering in `activity-store`.
   - Alternatives: keep repeated URL parsing and pre-sort/clone persistence snapshots.
   - Impact: lower steady-state background CPU/allocation overhead without behavior or schema changes.
+- **D-028**: Reliability hardening adds monotonic settings transition ordering, bounded persistence retry/backoff (`2` retries starting at `50ms`), and defensive sweep pending-state reset on failure/new independent runs.
+  - Alternatives: rely on current best-effort ordering with single-attempt persistence and implicit coordinator state assumptions.
+  - Impact: improved determinism across startup/update races and storage/scheduler failure paths without changing policy semantics or storage schema.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -207,3 +210,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-26: Completed Plan 18 YAGNI pruning by removing legacy PING messaging, consolidating storage compatibility wrappers into `storage-compat.ts`, and minimizing background `__testing` surface.
 - 2026-02-26: Completed Plan 19 DRY consolidation by centralizing captured-time formatting and suspended-title truncation constants with parity tests.
 - 2026-02-26: Completed Plan 20 performance opportunities by removing repeated suspend-path URL parsing, optimizing activity persistence snapshots, and adding keyed recovery-list rerender reconciliation.
+- 2026-02-26: Completed Plan 21 reliability hardening with settings transition epoch guards, bounded persistence retries/backoff, and sweep failure-path invariant coverage.

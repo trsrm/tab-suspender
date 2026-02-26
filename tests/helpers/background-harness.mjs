@@ -24,6 +24,7 @@ export function createChromeMock({
   queryResponder = () => [],
   updateResponder = () => ({}),
   storageSeed = {},
+  storageGetResponder = (_key, result) => result,
   storageSetResponder = () => undefined
 } = {}) {
   const runtimeOnInstalled = createEvent();
@@ -117,9 +118,12 @@ export function createChromeMock({
       local: {
         get(key, callback) {
           storageGetCalls.push(key);
-          const result = typeof key === "string" ? { [key]: storageData[key] } : {};
+          const defaultResult = typeof key === "string" ? { [key]: storageData[key] } : {};
 
-          return Promise.resolve().then(() => {
+          return Promise.resolve()
+            .then(() => storageGetResponder(key, defaultResult))
+            .then((result) => (result === undefined ? defaultResult : result))
+            .then((result) => {
             if (callback) {
               callback(result);
             }

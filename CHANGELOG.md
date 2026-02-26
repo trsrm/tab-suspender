@@ -2,7 +2,13 @@
 
 All notable user-facing changes are documented in this file.
 
-Current release: **1.1.4**
+Current release: **1.1.5**
+
+## [1.1.5] - 2026-02-26
+- Improved startup reliability by making settings updates deterministic when storage hydration and live changes overlap.
+- Added bounded retry/backoff for background activity and recovery persistence to recover from transient storage failures automatically.
+- Hardened suspend sweep coordination to prevent stale pending catch-up work after failure paths.
+- Expanded regression coverage for settings race ordering, persistence retry semantics, and sweep coordinator failure invariants.
 
 ## [1.1.4] - 2026-02-26
 - Reduced suspend-path CPU overhead by consolidating URL validation/parsing into a single metadata-aware evaluation step.

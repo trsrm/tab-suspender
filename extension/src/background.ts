@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS, SETTINGS_STORAGE_KEY, decodeStoredSettings, loadSetti
 import { loadRecoveryFromStorage, saveRecoveryToStorage } from "./recovery-store.js";
 import { isSuspendedDataUrl as isGeneratedSuspendedDataUrl } from "./suspended-payload.js";
 import { createPersistQueue } from "./background/persist-queue.js";
+import type { PersistErrorContext } from "./background/persist-queue.js";
 import { createSweepCoordinator } from "./background/sweep-coordinator.js";
 import { initializeRuntimeState as bootstrapRuntimeState } from "./background/runtime-bootstrap.js";
 import { createActivityRuntime, isValidId } from "./background/activity-runtime.js";
@@ -36,6 +37,7 @@ type TabUpdatedChangeInfo = {
 let recoveryEntries: RecoveryEntry[] = [];
 let focusedWindowId: number | null = null;
 let currentSettings: Settings = cloneSettings(DEFAULT_SETTINGS);
+let settingsTransitionEpoch = 0;
 let settingsReady: Promise<void> = Promise.resolve();
 let activityReady: Promise<void> = Promise.resolve();
 let runtimeReady: Promise<void> = Promise.resolve();
@@ -166,15 +168,15 @@ async function persistRecoverySnapshot(): Promise<void> {
 
 const activityPersistQueue = createPersistQueue({
   persist: () => activityRuntime.persistActivitySnapshot(),
-  onPersistError: (error) => {
-    log("Failed to persist activity snapshot.", error);
+  onPersistError: (error, context) => {
+    logPersistFailure("activity", error, context);
   }
 });
 
 const recoveryPersistQueue = createPersistQueue({
   persist: persistRecoverySnapshot,
-  onPersistError: (error) => {
-    log("Failed to persist recovery snapshot.", error);
+  onPersistError: (error, context) => {
+    logPersistFailure("recovery", error, context);
   }
 });
 
@@ -186,15 +188,56 @@ function schedulePersistRecovery(): void {
   recoveryPersistQueue.markDirty();
 }
 
+function logPersistFailure(target: "activity" | "recovery", error: unknown, context: PersistErrorContext): void {
+  log(`Failed to persist ${target} snapshot.`, {
+    error,
+    attempt: context.attempt,
+    willRetry: context.willRetry,
+    terminal: context.terminal
+  });
+}
+
+function beginSettingsTransition(): number {
+  settingsTransitionEpoch += 1;
+  return settingsTransitionEpoch;
+}
+
+function tryCommitSettingsTransition(epoch: number, settings: Settings): boolean {
+  if (epoch !== settingsTransitionEpoch) {
+    return false;
+  }
+
+  currentSettings = cloneSettings(settings);
+  return true;
+}
+
 function applyStoredSettingsValue(value: unknown): void {
-  currentSettings = decodeStoredSettings(value);
+  const epoch = beginSettingsTransition();
+  const nextSettings = decodeStoredSettings(value);
+
+  if (!tryCommitSettingsTransition(epoch, nextSettings)) {
+    return;
+  }
+
+  alignSweepCadenceAfterSettingsChange();
 }
 
 async function hydrateSettingsFromStorage(): Promise<void> {
+  const epoch = beginSettingsTransition();
+
   try {
-    currentSettings = await loadSettingsFromStorage();
+    const hydrated = await loadSettingsFromStorage();
+
+    if (tryCommitSettingsTransition(epoch, hydrated)) {
+      alignSweepCadenceAfterSettingsChange();
+    }
   } catch (error) {
-    currentSettings = cloneSettings(DEFAULT_SETTINGS);
+    const fallback = cloneSettings(DEFAULT_SETTINGS);
+
+    if (tryCommitSettingsTransition(epoch, fallback)) {
+      alignSweepCadenceAfterSettingsChange();
+    }
+
     log("Failed to load settings from storage. Falling back to defaults.", error);
   }
 }
@@ -249,7 +292,6 @@ function handleStorageSettingsChange(changes: Record<string, StorageChange> | un
   }
 
   applyStoredSettingsValue(settingsChange.newValue);
-  alignSweepCadenceAfterSettingsChange();
 }
 
 function scheduleSuspendSweepAlarm(): void {

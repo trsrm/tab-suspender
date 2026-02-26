@@ -1,87 +1,77 @@
 # Plan 21 - Reliability Hardening Opportunities
 
 ## Status
-Draft
+Implemented
 
 ## Goal
-Strengthen failure handling and state consistency across background lifecycle events without changing intended suspend behavior.
+Strengthen failure handling and state consistency across background lifecycle events without changing suspend-policy behavior, storage schema, or permissions.
 
 ## Scope
-- Harden race-prone or lifecycle-sensitive paths.
-- Improve determinism in failure and restart scenarios.
+- Deterministic settings transition ordering across startup hydration and live `storage.onChanged` updates.
+- Bounded retry/backoff for activity/recovery persistence queues.
+- Sweep coordinator failure-path invariants and explicit race/failure regression tests.
 
 ## Non-goals
-- No new product features.
-- No expansion of permissions.
-
-## Lens Definition
-Reliability here means preserving correct behavior across runtime restarts, API failures, and event timing races.
-
-## Scoring Model
-- `Impact` (1-5)
-- `Effort` (1-5)
-- `Confidence` (1-5)
-- `Priority Score = (Impact * Confidence) - Effort`
-
-## Recommendations
-### R21-1
-- Finding: rapid storage change events can race with in-flight hydration and cadence updates.
-- Evidence: settings hydration and `storage.onChanged` both mutate active runtime settings in `background.ts`.
-- Risk if unchanged: rare inconsistent sweep due-time updates when startup and storage writes overlap.
-- Proposed change: add explicit settings version stamp/monotonic apply guard to serialize effective settings transitions.
-- Estimated impact: medium reliability gain in restart/update windows.
-- Complexity: medium.
-- Dependencies: settings-runtime tests covering startup + onChanged interleaving.
-- Rollback: remove version guard and restore direct apply.
-- Score: Impact 4, Effort 3, Confidence 4, Priority Score 13.
-
-### R21-2
-- Finding: persistence queues log errors but do not provide bounded retry/backoff strategy.
-- Evidence: `schedulePersistActivity` and `schedulePersistRecovery` catch and log, then rely on dirty flag scheduling.
-- Risk if unchanged: repeated storage failure can silently drop persistence durability expectations.
-- Proposed change: add bounded retry with explicit terminal log state and test coverage for repeated storage failures.
-- Estimated impact: improved recovery from transient storage errors.
-- Complexity: medium.
-- Dependencies: extend storage error tests in harness.
-- Rollback: restore current single-attempt queue behavior.
-- Score: Impact 4, Effort 3, Confidence 3, Priority Score 9.
-
-### R21-3
-- Finding: sweep serialization uses pending minute handoff; failure-path invariants are not explicitly asserted.
-- Evidence: `sweepInFlight` / `pendingSweepMinute` coordination in `background.ts`.
-- Risk if unchanged: subtle race regressions during future scheduler changes.
-- Proposed change: add explicit state-transition assertions and dedicated race tests.
-- Estimated impact: high confidence in future sweep refactors.
-- Complexity: low-to-medium.
-- Dependencies: background harness enhancements.
-- Rollback: remove additional assertions/tests.
-- Score: Impact 3, Effort 2, Confidence 4, Priority Score 10.
+- No policy precedence or eligibility logic changes.
+- No options/suspended UI workflow changes.
+- No storage key/version changes.
 
 ## Implementation Steps
-1. Add deterministic transition guards for settings and sweep lifecycle.
-2. Add bounded persistence retry semantics.
-3. Expand lifecycle and failure-path tests.
+1. Added a monotonic settings transition epoch in `background.ts` and routed hydration/live updates through guarded commit logic.
+2. Ensured sweep cadence realignment only runs for committed settings transitions (stale hydration results are ignored).
+3. Extended `createPersistQueue` with bounded retry defaults (`maxRetries=2`, `baseRetryDelayMs=50`) and injectable sleep for deterministic testing.
+4. Added retry metadata (`attempt`, `willRetry`, `terminal`) to persistence error callbacks and updated background logging to include retry context.
+5. Hardened sweep coordinator invariants by defensively clearing stale pending catch-up state before new independent runs and on failure.
+6. Extended background harness to support controllable storage-get sequencing for hydration/onChanged interleaving tests.
+7. Added/updated tests for:
+   - hydration vs onChanged interleaving winner
+   - transient persistence failure recovery without new events
+   - bounded terminal retry behavior (no infinite retry loop)
+   - sweep coordinator failure and catch-up invariants
 
-## Files Expected to Change
+## Files Added/Changed
 - `extension/src/background.ts`
-- `tests/background-event-wiring.test.mjs`
-- `tests/settings-runtime.test.mjs`
+- `extension/src/background/persist-queue.ts`
+- `extension/src/background/sweep-coordinator.ts`
 - `tests/helpers/background-harness.mjs`
-- `docs/architecture.md`
+- `tests/settings-runtime.test.mjs`
+- `tests/background-event-wiring.test.mjs`
+- `tests/sweep-coordinator.test.mjs`
 - `docs/plans/plan-21-reliability-hardening-opportunities.md`
 - `ROADMAP.md`
 
-## Test/Evidence Expectations
-- `npm run build`
-- `node --test tests/background-event-wiring.test.mjs tests/settings-runtime.test.mjs`
-- `npm run test`
+## Tests/Evidence
+- Command: `npm run build`
+  - Result: passed.
+- Command: `node --test tests/settings-runtime.test.mjs tests/background-event-wiring.test.mjs tests/sweep-coordinator.test.mjs`
+  - Result: passed (22 tests, 0 failures).
+- Command: `npm run test`
+  - Result: passed (93 tests, 0 failures).
 
 ## Exit Criteria
-- Failure-path behavior for persistence and lifecycle races is deterministic and tested.
-- No suspend eligibility regressions.
+- Startup hydration and live settings updates resolve deterministically (newer transition wins).
+- Persistence queues recover from transient storage failures via bounded retry and stop after terminal retry.
+- Sweep failure-path pending-state invariants are covered by dedicated tests.
+- Build + targeted + full regression suites pass.
 
 ## Rollback
-- Revert Plan 21 files and rerun full suite.
+- Revert Plan 21 changes in:
+  - `extension/src/background.ts`
+  - `extension/src/background/persist-queue.ts`
+  - `extension/src/background/sweep-coordinator.ts`
+  - `tests/helpers/background-harness.mjs`
+  - `tests/settings-runtime.test.mjs`
+  - `tests/background-event-wiring.test.mjs`
+  - `tests/sweep-coordinator.test.mjs`
+  - `docs/plans/plan-21-reliability-hardening-opportunities.md`
+  - `ROADMAP.md`
+- Re-run `npm run build` and `npm run test`.
 
-## Risks Left
-- Some Safari lifecycle edge cases still require manual real-browser validation.
+## Decisions
+- Settings transition ordering uses a monotonic in-process epoch guard rather than storage timestamps or schema changes.
+- Persistence retry policy is bounded and local-only (`2` retries, exponential backoff from `50ms`) to improve durability without runaway loops.
+- Sweep coordinator preserves bounded catch-up semantics while explicitly preventing stale pending-minute leakage after failed runs.
+
+## Retrospective
+- What changed: reliability-sensitive runtime edges (settings race, persistence failure recovery, sweep failure state) now have deterministic behavior and direct regression coverage.
+- Risks left: Safari-specific lifecycle edge timing still benefits from manual browser validation in addition to automated harness tests.

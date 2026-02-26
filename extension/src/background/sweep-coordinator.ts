@@ -34,22 +34,27 @@ export function createSweepCoordinator(options: CreateSweepCoordinatorOptions): 
         return sweepInFlight;
       }
 
-      sweepInFlight = (async () => {
-        await options.runSweep(nowMinute);
+      // Pending minute should never outlive an in-flight run; clear defensively to keep runs independent.
+      pendingSweepMinute = null;
 
-        // Bound catch-up to one extra sweep so prolonged alarm backlogs cannot run indefinitely.
-        if (pendingSweepMinute !== null) {
-          const nextMinute = pendingSweepMinute;
+      sweepInFlight = (async () => {
+        try {
+          await options.runSweep(nowMinute);
+
+          // Bound catch-up to one extra sweep so prolonged alarm backlogs cannot run indefinitely.
+          if (pendingSweepMinute !== null) {
+            const nextMinute = pendingSweepMinute;
+            pendingSweepMinute = null;
+            await options.runSweep(nextMinute);
+          }
+        } catch (error: unknown) {
+          // Prevent stale catch-up work from leaking into future independent requests.
           pendingSweepMinute = null;
-          await options.runSweep(nextMinute);
-        }
-      })()
-        .catch((error: unknown) => {
           options.onSweepError(error);
-        })
-        .finally(() => {
+        } finally {
           sweepInFlight = null;
-        });
+        }
+      })();
 
       return sweepInFlight;
     },
