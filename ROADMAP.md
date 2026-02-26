@@ -66,7 +66,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 13: Reliable auto-suspend timeout (focus-based + restart-safe) ([details](docs/plans/plan-13-reliable-auto-suspend-timeout.md))
 - [x] Plan 14: Reload-safe recovery ledger + options reopen flow ([details](docs/plans/plan-14-reload-safe-recovery.md))
 - [x] Plan 15: Safari CPU reduction via adaptive sweep cadence + candidate filtering ([details](docs/plans/plan-15-safari-cpu-reduction.md))
-- [ ] Plan 16: (draft) Package a Safari Web Extension that can be installed to Safari (XCode build?)
+- [x] Plan 16: Installable Safari packaging baseline (in-repo Xcode wrapper + sync workflow) ([details](docs/plans/plan-16-installable-safari-packaging-baseline.md))
 - [ ] Plan 17: (draft) KISS simplification opportunities ([details](docs/plans/plan-17-kiss-simplification-opportunities.md))
 - [ ] Plan 18: (draft) YAGNI pruning opportunities ([details](docs/plans/plan-18-yagni-pruning-opportunities.md))
 - [ ] Plan 19: (draft) DRY consolidation opportunities ([details](docs/plans/plan-19-dry-consolidation-opportunities.md))
@@ -81,6 +81,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [ ] Plan 28: (draft) Settings import/export ([details](docs/plans/plan-28-settings-import-export.md))
 - [ ] Plan 29: (draft) Manual suspend controls ([details](docs/plans/plan-29-manual-suspend-controls.md))
 - [ ] Plan 30: (draft) Suspension reason transparency ([details](docs/plans/plan-30-suspension-reason-transparency.md))
+- [ ] Plan 31: (draft) Disable/uninstall-safe suspended tab survival (prevent suspended tabs from closing when extension is disabled/uninstalled)
 
 ## Governance Rules
 - Execute one plan per implementation turn.
@@ -157,6 +158,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-020**: Plan 12 feature discovery is scoped to user-facing capabilities, and generated draft feature plans use top-level roadmap IDs starting at 25.
   - Alternatives: fold user-facing work into existing quality-lens drafts, or use nested `12.x` identifiers.
   - Impact: clearer separation between feature growth and internal quality tracks with consistent roadmap indexing.
+- **D-021**: Local install packaging is standardized on a committed in-repo Xcode wrapper project hydrated by synced `build/extension` artifacts.
+  - Alternatives: docs-only manual setup, or generating wrapper project ad hoc per developer.
+  - Impact: deterministic contributor installation path with reduced setup drift and reproducible Safari enablement workflow.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -175,5 +179,6 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-25: Completed Plan 13 reliable auto-suspend timeout with focus-based idle semantics, persisted activity hydration/persistence, and restart-durability coverage.
 - 2026-02-26: Completed Plan 14 reload-safe recovery with versioned suspended-tab recovery storage, options-based reopen UI, and regression coverage for recovery persistence/failure handling.
 - 2026-02-26: Completed Plan 15 Safari CPU reduction with adaptive sweep cadence gating, filtered sweep candidate queries with fallback, and suspended-page self-churn avoidance.
+- 2026-02-26: Completed Plan 16 installable Safari packaging baseline with committed Xcode wrapper scaffolding and build-to-wrapper resource sync workflow.
 - 2026-02-26: Completed Plan 11 analysis-only multi-lens review and generated draft Plans 17-24 with standardized scoring/rubric metadata.
 - 2026-02-26: Completed Plan 12 feature discovery analysis and generated draft Plans 25-30 for user-facing capability expansion without runtime changes.

@@ -19,6 +19,7 @@ This directory stores detailed plan specs and historical execution records.
 - `plan-13-reliable-auto-suspend-timeout.md`
 - `plan-14-reload-safe-recovery.md`
 - `plan-15-safari-cpu-reduction.md`
+- `plan-16-installable-safari-packaging-baseline.md`
 - `plan-17-kiss-simplification-opportunities.md`
 - `plan-18-yagni-pruning-opportunities.md`
 - `plan-19-dry-consolidation-opportunities.md`

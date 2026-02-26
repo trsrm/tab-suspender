@@ -9,7 +9,8 @@ A local-ready build requires:
 ## Preconditions
 - Dependencies installed (`npm ci`).
 - Fresh build artifacts generated (`npm run build`).
-- Extension loaded from `build/extension/manifest.json`.
+- Safari wrapper resources synced (`npm run sync:safari-wrapper` or `npm run build:safari-wrapper`).
+- Xcode wrapper project available at `safari-wrapper/TabSuspenderWrapper.xcodeproj`.
 - Test environment on macOS Safari for manual checks.
 
 ## Automated Regression Gate
@@ -21,6 +22,9 @@ A local-ready build requires:
 ## Manual Safari Core Smoke Matrix
 | ID | Scenario | Steps | Expected Result | Result | Notes |
 | --- | --- | --- | --- | --- | --- |
+| M-00 | Wrapper resource sync | Run `npm run build:safari-wrapper` from a clean checkout | `safari-wrapper/TabSuspenderExtension/Resources/manifest.json` exists and matches build output | not-run | Requires local shell + Xcode wrapper files |
+| M-00b | Xcode wrapper app run | Open wrapper project and run `TabSuspenderHost` scheme once | Host app launches without missing-resource errors | not-run | Requires interactive Xcode session |
+| M-00c | Safari extension enablement | Open Safari Settings > Extensions and enable Tab Suspender | Extension appears and can be enabled successfully | not-run | Requires interactive Safari session |
 | M-01 | Options defaults load | Open options with empty storage | Idle `60`, `skipPinned=true`, `skipAudible=true`, empty exclusions | not-run | Requires interactive Safari session |
 | M-02 | Persisted options load | Save settings, reopen options | Last saved values render correctly | not-run | Requires interactive Safari session |
 | M-03 | Invalid exclusion warning | Save mixed valid/invalid excluded hosts | Save succeeds, invalid count warning shown | not-run | Requires interactive Safari session |
@@ -43,12 +47,13 @@ A local-ready build requires:
 ## Manual Evidence (2026-02-25)
 - Result: blocked in this environment (non-interactive Codex run, Safari UI actions unavailable).
 - Impact: automated coverage is strong, but interactive Safari behavior still requires operator confirmation.
-- Required follow-up: run M-01..M-12 on a local Safari session and record pass/fail in this file before final distribution.
+- Required follow-up: run M-00..M-12 on a local Safari/Xcode session and record pass/fail in this file before final distribution.
 
 ## Troubleshooting Matrix
 | Symptom | Likely Cause | Verification | Action |
 | --- | --- | --- | --- |
 | Extension not loadable | Build artifacts missing/stale | Confirm `build/extension/manifest.json` exists | Run `npm run build` |
+| Wrapper project missing extension files | Wrapper resources not synced after code changes | Confirm `safari-wrapper/TabSuspenderExtension/Resources/manifest.json` exists | Run `npm run build:safari-wrapper` |
 | Settings appear unsaved | Invalid form input or storage write issue | Check status text and storage envelope under `settings` | Correct input, save again, reload options |
 | Tab not suspending | Guard condition prevents suspend | Check active/pinned/audible/internal/excluded/timeout/url length conditions | Adjust settings or test tab preconditions |
 | Restore button disabled | URL failed validator | Check protocol + length + parseability in suspended payload | Use valid `http/https` URL <= 2048 chars |

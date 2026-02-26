@@ -1,10 +1,13 @@
 {
   "name": "tab-suspender",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-extension-assets.mjs",
+    "sync:safari-wrapper": "node scripts/sync-safari-wrapper.mjs",
+    "build:safari-wrapper": "npm run build && npm run sync:safari-wrapper",
+    "release:version": "node scripts/release-version.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test tests/*.test.mjs"
   },

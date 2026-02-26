@@ -10,10 +10,20 @@
    - `npm ci`
 2. Build extension artifacts:
    - `npm run build`
-3. Type-check:
+3. Sync Safari wrapper resources:
+   - `npm run sync:safari-wrapper`
+4. Type-check:
    - `npm run typecheck`
-4. Run tests:
+5. Run tests:
    - `npm run test`
+
+## Local Safari Install Baseline
+1. Build and sync wrapper artifacts:
+   - `npm run build:safari-wrapper`
+2. Open `safari-wrapper/TabSuspenderWrapper.xcodeproj` in Xcode.
+3. Run the `TabSuspenderHost` scheme once.
+4. In Safari, open `Settings > Extensions` and enable **Tab Suspender**.
+5. Run applicable manual checks from `docs/qa-checklist.md`.
 
 ## Plan-Scoped Workflow
 1. Implement one plan at a time.
@@ -33,6 +43,8 @@
   - run targeted tests for impacted suites.
 - Before marking a plan as implemented:
   - `npm run test`
+- When changing extension assets/runtime used by Safari wrapper:
+  - `npm run build:safari-wrapper`
 
 ## Evidence Format
 Record evidence in the active plan file under `docs/plans/`:

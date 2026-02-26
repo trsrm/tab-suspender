@@ -3,7 +3,7 @@
 A privacy-first Safari Web Extension that suspends idle tabs and restores them safely.
 
 ## Current Status
-- Plan 0-10, 13, and 14 are implemented.
+- Plan 0-10 and 13-16 are implemented.
 - Local QA hardening is documented in `docs/qa-checklist.md` and `docs/plans/plan-8-qa-hardening.md`.
 - v1 target remains macOS Safari with no telemetry.
 
@@ -39,10 +39,19 @@ A privacy-first Safari Web Extension that suspends idle tabs and restores them s
 4. Run regression tests:
    - `npm run test`
 
-## Loading the Extension Locally
+## Loading the Extension Locally (Xcode Wrapper)
+1. Build and sync wrapper resources:
+   - `npm run build:safari-wrapper`
+2. Open `safari-wrapper/TabSuspenderWrapper.xcodeproj` in Xcode.
+3. Select the `TabSuspenderHost` scheme and run once.
+4. In Safari, enable **Tab Suspender** in **Settings > Extensions**.
+5. Optional: open extension settings from Safari and run smoke checks in `docs/qa-checklist.md`.
+
+Notes:
 - Runtime artifacts are generated into `build/extension/`.
-- Import path: `build/extension/manifest.json`.
+- Wrapper extension resources are synced into `safari-wrapper/TabSuspenderExtension/Resources/`.
 - `extension/` is source/static input only; do not load it directly.
+- Full end-to-end setup guide: `docs/safari-local-install.md`.
 
 ## Contributing
 - See `CONTRIBUTING.md` for plan-scoped workflow, required checks, evidence format, and rollback expectations.
@@ -58,6 +67,8 @@ Use `docs/qa-checklist.md` for the canonical release-readiness checklist. Core s
 ## Troubleshooting
 - Build artifacts missing:
   - Run `npm run build` and verify `build/extension/manifest.json` exists.
+- Wrapper missing extension files:
+  - Run `npm run build:safari-wrapper` and verify `safari-wrapper/TabSuspenderExtension/Resources/manifest.json` exists.
 - Settings appear stale:
   - Reopen options page and confirm `chrome.storage.local["settings"]` value shape (`schemaVersion: 1`).
 - Tab did not suspend:
@@ -70,14 +81,18 @@ Use `docs/qa-checklist.md` for the canonical release-readiness checklist. Core s
 
 ## Repository Layout
 - `ROADMAP.md`: high-level plan status + global cross-plan decisions.
+- `CHANGELOG.md`: high-level release history for end users.
 - `docs/plans/`: detailed plan-by-plan implementation records and evidence.
 - `docs/architecture.md`: runtime architecture and safety decisions.
 - `docs/qa-checklist.md`: local release-readiness checklist.
 - `extension/`: source TypeScript + static extension assets.
 - `build/extension/`: compiled/importable extension runtime.
+- `safari-wrapper/`: committed Xcode host app + Safari extension wrapper project.
 - `tests/`: Node test suites for policy, runtime, UI logic, and guardrails.
 
 ## Scripts
 - `npm run build`: compile TypeScript and copy static extension assets.
+- `npm run sync:safari-wrapper`: copy `build/extension` into wrapper extension resources.
+- `npm run build:safari-wrapper`: run build then sync wrapper resources.
 - `npm run typecheck`: TypeScript typecheck without emit.
 - `npm run test`: build + run all Node test suites (`tests/*.test.mjs`).

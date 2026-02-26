@@ -26,6 +26,8 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 - `npm run build` compiles TypeScript and copies static assets into `build/extension/`.
 - Static icon assets under `extension/icons/` are copied into `build/extension/icons/` during build.
 - Runtime JS in `build/extension/` is canonical for local import/testing.
+- `npm run sync:safari-wrapper` mirrors `build/extension/` into `safari-wrapper/TabSuspenderExtension/Resources/`.
+- `safari-wrapper/TabSuspenderWrapper.xcodeproj` is the committed local install wrapper for Safari enablement flows.
 
 ## Data Flow
 1. Extension startup
