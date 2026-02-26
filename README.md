@@ -13,6 +13,7 @@ Tab Suspender reduces tab clutter and resource usage by replacing long-idle tabs
 - Per-site policy profiles with deterministic precedence and host-specific overrides.
 - Safe restore flow with URL validation before navigation.
 - Recently suspended recovery list in Options for one-click reopen.
+- Local JSON settings/recovery export and staged import (preview, apply, cancel).
 - Legacy suspended extension-page URLs remain compatible while the extension is enabled.
 
 ## Who it is for
@@ -41,6 +42,7 @@ For full setup and troubleshooting steps, see [Safari Local Install Guide](docs/
 4. Use the toolbar action when you want to suspend the current tab immediately.
 5. On a suspended tab, use **Restore** to return to the original page (URL safety checks apply).
 6. If tabs disappear after extension reload/update, reopen from **Recently Suspended Tabs** in Options.
+7. Use **Backup & Restore** in Options to export a local configuration file or import a saved file.
 
 ## Troubleshooting
 - Extension files not showing in wrapper:

@@ -2,7 +2,14 @@
 
 All notable user-facing changes are documented in this file.
 
-Current release: **1.2.0**
+Current release: **1.3.0**
+
+## [1.3.0] - 2026-02-26
+- Added local configuration export to JSON from Options for portable backups.
+- Added staged configuration import flow with explicit preview, apply, and cancel controls.
+- Added versioned portable schema (`exportSchemaVersion: 1`) with strict malformed/unsupported payload rejection.
+- Added atomic import apply path that writes settings and recovery state together in one storage transaction.
+- Expanded regression coverage for portable parser/serializer behavior and end-to-end options import/export UX.
 
 ## [1.2.0] - 2026-02-26
 - Added per-site policy profiles so specific domains can override global suspend behavior.

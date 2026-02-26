@@ -60,6 +60,9 @@ function createNode(tagName, base = {}) {
     className: "",
     value: "",
     checked: false,
+    href: "",
+    download: "",
+    files: null,
     attributes: {},
     type: "",
     appendChild(child) {
@@ -112,6 +115,7 @@ function createElement({ textContent = "", hidden = false } = {}) {
 }
 
 function createDom() {
+  const createdAnchors = [];
   const elements = {
     settingsForm: createForm(),
     idleHours: createInput(),
@@ -123,6 +127,15 @@ function createDom() {
     addSiteProfileButton: createNode("button"),
     saveButton: createNode("button"),
     status: createElement({ textContent: "Loading settings..." }),
+    importExportStatus: createElement({ textContent: "" }),
+    importPreview: createNode("div", { hidden: true }),
+    importPreviewSummary: createElement({ textContent: "" }),
+    importPreviewWarnings: createElement({ textContent: "" }),
+    exportConfigButton: createNode("button"),
+    importConfigButton: createNode("button"),
+    importConfigFile: createInput(),
+    applyImportButton: createNode("button", { disabled: true }),
+    cancelImportButton: createNode("button", { disabled: true }),
     recoveryEmpty: createElement({ textContent: "Loading recently suspended tabs..." }),
     recoveryStatus: createElement({ textContent: "" }),
     recoveryList: createNode("ul")
@@ -130,12 +143,17 @@ function createDom() {
 
   return {
     elements,
+    createdAnchors,
     document: {
       getElementById(id) {
         return Object.prototype.hasOwnProperty.call(elements, id) ? elements[id] : null;
       },
       createElement(tagName) {
-        return createNode(tagName);
+        const node = createNode(tagName);
+        if (String(tagName).toLowerCase() === "a") {
+          createdAnchors.push(node);
+        }
+        return node;
       }
     }
   };
@@ -221,7 +239,7 @@ async function flushAsyncWork() {
 }
 
 async function importOptionsWithMocks({ storageSeed = {}, tabsCreateResponder } = {}) {
-  const { elements, document } = createDom();
+  const { elements, createdAnchors, document } = createDom();
   const storageMock = createChromeStorageMock({ storageSeed, tabsCreateResponder });
 
   globalThis.document = document;
@@ -232,7 +250,7 @@ async function importOptionsWithMocks({ storageSeed = {}, tabsCreateResponder } 
   await flushAsyncWork();
   await flushAsyncWork();
 
-  return { elements, optionsModule, ...storageMock };
+  return { elements, createdAnchors, optionsModule, ...storageMock };
 }
 
 test("options page loads defaults when storage is empty", { concurrency: false }, async () => {
@@ -581,6 +599,176 @@ test("recovery list only replaces changed rows across rerenders", { concurrency:
 
   assert.equal(elements.recoveryList.children[0], originalFirstRow);
   assert.notEqual(elements.recoveryList.children[1], originalSecondRow);
+});
+
+test("export action creates downloadable json file with expected name prefix", { concurrency: false }, async () => {
+  const { elements, createdAnchors } = await importOptionsWithMocks({
+    storageSeed: {
+      [SETTINGS_STORAGE_KEY]: {
+        schemaVersion: 2,
+        settings: {
+          idleMinutes: 120,
+          excludedHosts: ["example.com"],
+          skipPinned: true,
+          skipAudible: true,
+          siteProfiles: []
+        }
+      },
+      [RECOVERY_STORAGE_KEY]: {
+        schemaVersion: 1,
+        entries: [{ url: "https://example.com/a", title: "A", suspendedAtMinute: 10 }]
+      }
+    }
+  });
+
+  elements.exportConfigButton.click();
+  await flushAsyncWork();
+  await flushAsyncWork();
+
+  assert.equal(createdAnchors.length, 1);
+  assert.equal(createdAnchors[0].download.startsWith("tab-suspender-config-"), true);
+  assert.equal(createdAnchors[0].download.endsWith(".json"), true);
+  assert.equal(createdAnchors[0].href.startsWith("data:application/json"), true);
+  assert.equal(decodeURIComponent(createdAnchors[0].href).includes('\"exportSchemaVersion\": 1'), true);
+  assert.equal(elements.importExportStatus.textContent, "Export started.");
+});
+
+test("import rejects invalid payload without writing storage", { concurrency: false }, async () => {
+  const { elements, storageSetCalls } = await importOptionsWithMocks();
+
+  elements.importConfigFile.files = [
+    {
+      text: async () => "{invalid"
+    }
+  ];
+  elements.importConfigFile.dispatch("change");
+  await flushAsyncWork();
+  await flushAsyncWork();
+
+  assert.equal(storageSetCalls.length, 0);
+  assert.equal(elements.importPreview.hidden, true);
+  assert.equal(elements.importExportStatus.textContent, "Failed to import configuration. Invalid JSON file.");
+});
+
+test("import valid payload shows preview and does not write until apply", { concurrency: false }, async () => {
+  const { elements, storageSetCalls } = await importOptionsWithMocks();
+
+  elements.importConfigFile.files = [
+    {
+      text: async () =>
+        JSON.stringify({
+          exportSchemaVersion: 1,
+          generatedAtMinute: 100,
+          settings: {
+            idleMinutes: 180,
+            excludedHosts: ["example.com", "bad host"],
+            skipPinned: false,
+            skipAudible: true,
+            siteProfiles: []
+          },
+          recoveryState: {
+            schemaVersion: 1,
+            entries: [{ url: "https://example.com/a", title: "A", suspendedAtMinute: 90 }]
+          }
+        })
+    }
+  ];
+  elements.importConfigFile.dispatch("change");
+  await flushAsyncWork();
+  await flushAsyncWork();
+
+  assert.equal(storageSetCalls.length, 0);
+  assert.equal(elements.importPreview.hidden, false);
+  assert.equal(elements.applyImportButton.disabled, false);
+  assert.equal(elements.importExportStatus.textContent, "Configuration ready to import.");
+});
+
+test("apply import writes settings and recovery in one storage set and rerenders ui", { concurrency: false }, async () => {
+  const { elements, storageSetCalls, storageData } = await importOptionsWithMocks();
+
+  elements.importConfigFile.files = [
+    {
+      text: async () =>
+        JSON.stringify({
+          exportSchemaVersion: 1,
+          generatedAtMinute: 100,
+          settings: {
+            idleMinutes: 180,
+            excludedHosts: ["example.com"],
+            skipPinned: false,
+            skipAudible: true,
+            siteProfiles: []
+          },
+          recoveryState: {
+            schemaVersion: 1,
+            entries: [{ url: "https://example.com/a", title: "A", suspendedAtMinute: 90 }]
+          }
+        })
+    }
+  ];
+  elements.importConfigFile.dispatch("change");
+  await flushAsyncWork();
+  await flushAsyncWork();
+
+  elements.applyImportButton.click();
+  await flushAsyncWork();
+  await flushAsyncWork();
+
+  assert.equal(storageSetCalls.length, 1);
+  assert.deepEqual(Object.keys(storageSetCalls[0]).sort(), [RECOVERY_STORAGE_KEY, SETTINGS_STORAGE_KEY]);
+  assert.deepEqual(storageData[SETTINGS_STORAGE_KEY], {
+    schemaVersion: 2,
+    settings: {
+      idleMinutes: 180,
+      excludedHosts: ["example.com"],
+      skipPinned: false,
+      skipAudible: true,
+      siteProfiles: []
+    }
+  });
+  assert.deepEqual(storageData[RECOVERY_STORAGE_KEY], {
+    schemaVersion: 1,
+    entries: [{ url: "https://example.com/a", title: "A", suspendedAtMinute: 90 }]
+  });
+  assert.equal(elements.idleHours.value, "3");
+  assert.equal(elements.recoveryList.children.length, 1);
+  assert.equal(elements.importPreview.hidden, true);
+  assert.equal(elements.importExportStatus.textContent, "Imported configuration applied.");
+});
+
+test("cancel import clears staged preview without writing storage", { concurrency: false }, async () => {
+  const { elements, storageSetCalls } = await importOptionsWithMocks();
+
+  elements.importConfigFile.files = [
+    {
+      text: async () =>
+        JSON.stringify({
+          exportSchemaVersion: 1,
+          generatedAtMinute: 100,
+          settings: {
+            idleMinutes: 180,
+            excludedHosts: ["example.com"],
+            skipPinned: false,
+            skipAudible: true,
+            siteProfiles: []
+          },
+          recoveryState: {
+            schemaVersion: 1,
+            entries: [{ url: "https://example.com/a", title: "A", suspendedAtMinute: 90 }]
+          }
+        })
+    }
+  ];
+  elements.importConfigFile.dispatch("change");
+  await flushAsyncWork();
+  await flushAsyncWork();
+
+  elements.cancelImportButton.click();
+
+  assert.equal(storageSetCalls.length, 0);
+  assert.equal(elements.importPreview.hidden, true);
+  assert.equal(elements.applyImportButton.disabled, true);
+  assert.equal(elements.importExportStatus.textContent, "Import canceled.");
 });
 
 test.afterEach(() => {

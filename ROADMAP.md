@@ -76,7 +76,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 23: Over-engineering reduction opportunities ([details](docs/plans/plan-23-over-engineering-reduction.md))
 - [x] Plan 24: Anti-pattern and code-health opportunities ([details](docs/plans/plan-24-anti-patterns-and-code-health.md))
 - [x] Plan 26: Per-site policy profiles ([details](docs/plans/plan-26-per-site-policy-profiles.md))
-- [ ] Plan 28: (draft) Settings import/export ([details](docs/plans/plan-28-settings-import-export.md))
+- [x] Plan 28: Settings import/export ([details](docs/plans/plan-28-settings-import-export.md))
 - [ ] Plan 29: (draft) Manual suspend controls ([details](docs/plans/plan-29-manual-suspend-controls.md))
 - [ ] Plan 30: (draft) Suspension reason transparency ([details](docs/plans/plan-30-suspension-reason-transparency.md))
 - [x] Plan 31: Disable/uninstall-safe suspended tab survival (prevent suspended tabs from closing when extension is disabled/uninstalled) ([details](docs/plans/plan-31-disable-uninstall-safe-suspended-tab-survival.md))
@@ -193,6 +193,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-032**: Settings storage schema is upgraded to v2 with decode-time migration from v1 to support per-site policy profiles, and per-site match precedence is fixed to exact > wildcard, then longer host target, then earliest row.
   - Alternatives: keep schema v1 with parallel profile key storage, or use list-order-first precedence.
   - Impact: deterministic host-specific policy overrides without breaking existing persisted settings.
+- **D-033**: Options now supports local configuration export/import via a versioned portable JSON envelope (`exportSchemaVersion: 1`) with staged preview/confirm and atomic dual-key (`settings` + `recoveryState`) apply.
+  - Alternatives: immediate import apply without preview, or separate per-key writes.
+  - Impact: user-controlled backup/restore with safer validation UX and no partial-write drift across settings/recovery state.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -218,6 +221,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-26: Completed Plan 32 long-idle hours UX with minute-compatible storage, 24-hour default timeout, and 30-minute max sweep cadence scaling.
 - 2026-02-26: Completed Plan 31 disable/uninstall-safe suspended-tab survival with signed self-contained `data:` suspended pages and legacy extension-page compatibility detection.
 - 2026-02-26: Completed Plan 18 YAGNI pruning by removing legacy PING messaging, consolidating storage compatibility wrappers into `storage-compat.ts`, and minimizing background `__testing` surface.
+- 2026-02-26: Completed Plan 28 settings import/export with portable JSON schema v1, staged import preview/apply/cancel UX, atomic settings+recovery writes, and targeted parser/UI regression coverage.
 - 2026-02-26: Completed Plan 19 DRY consolidation by centralizing captured-time formatting and suspended-title truncation constants with parity tests.
 - 2026-02-26: Completed Plan 20 performance opportunities by removing repeated suspend-path URL parsing, optimizing activity persistence snapshots, and adding keyed recovery-list rerender reconciliation.
 - 2026-02-26: Completed Plan 21 reliability hardening with settings transition epoch guards, bounded persistence retries/backoff, and sweep failure-path invariant coverage.

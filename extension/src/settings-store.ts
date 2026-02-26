@@ -171,12 +171,7 @@ export async function saveSettingsToStorage(
   storageArea?: StorageAreaLike | null
 ): Promise<StoredSettingsV2> {
   const resolvedStorageArea = resolveStorageArea(storageArea);
-  const sanitizedSettings = sanitizeSettingsV2(value, DEFAULT_SETTINGS);
-
-  const envelope: StoredSettingsV2 = {
-    schemaVersion: 2,
-    settings: sanitizedSettings
-  };
+  const envelope = createSettingsEnvelope(value);
 
   if (resolvedStorageArea) {
     await setItemsWithCompatibility(resolvedStorageArea, {
@@ -185,4 +180,13 @@ export async function saveSettingsToStorage(
   }
 
   return envelope;
+}
+
+export function createSettingsEnvelope(value: unknown): StoredSettingsV2 {
+  const sanitizedSettings = sanitizeSettingsV2(value, DEFAULT_SETTINGS);
+
+  return {
+    schemaVersion: 2,
+    settings: sanitizedSettings
+  };
 }

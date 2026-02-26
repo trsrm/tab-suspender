@@ -1,5 +1,7 @@
 import {
   DEFAULT_SETTINGS,
+  SETTINGS_STORAGE_KEY,
+  SETTINGS_SCHEMA_VERSION,
   MAX_IDLE_HOURS,
   MAX_EXCLUDED_HOST_LENGTH,
   MAX_EXCLUDED_HOSTS,
@@ -10,10 +12,12 @@ import {
   saveSettingsToStorage
 } from "./settings-store.js";
 import { normalizeExcludedHostEntries, normalizeSiteProfileHostRule } from "./matcher.js";
-import type { Settings, SiteProfile } from "./types.js";
-import { loadRecoveryFromStorage } from "./recovery-store.js";
+import type { PortableConfigV1, PortableImportResult, Settings, SiteProfile } from "./types.js";
+import { RECOVERY_SCHEMA_VERSION, RECOVERY_STORAGE_KEY, loadRecoveryFromStorage } from "./recovery-store.js";
 import { formatCapturedAtMinuteUtc } from "./time-format.js";
 import { validateRestorableUrl } from "./url-safety.js";
+import { buildPortableConfig, parsePortableConfigJson, serializePortableConfig } from "./portable-config.js";
+import { resolveStorageArea, setItemsWithCompatibility } from "./storage-compat.js";
 
 export {};
 
@@ -29,6 +33,19 @@ const optionsMessages = {
     saved: "Settings saved.",
     saveFailed: "Failed to save settings.",
     validationFailed: "Settings were not saved."
+  },
+  importExportStatus: {
+    importLoading: "Reading configuration file...",
+    importInvalid: "Failed to import configuration.",
+    importPreviewReady: "Configuration ready to import.",
+    importApplyPending: "Applying imported configuration...",
+    importApplied: "Imported configuration applied.",
+    importApplyFailed: "Failed to apply imported configuration.",
+    importCanceled: "Import canceled.",
+    exportPending: "Preparing configuration export...",
+    exportReady: "Export started.",
+    exportFailed: "Failed to export configuration.",
+    noFileSelected: "Choose a configuration file to import first."
   },
   recoveryStatus: {
     reopenOk: "Reopened suspended tab in a new tab.",
@@ -69,6 +86,15 @@ type OptionsElements = {
   recoveryStatusEl: HTMLElement;
   recoveryList: HTMLElement;
   recoveryEmpty: HTMLElement;
+  importExportStatusEl: HTMLElement;
+  importPreviewEl: HTMLElement;
+  importPreviewSummaryEl: HTMLElement;
+  importPreviewWarningsEl: HTMLElement;
+  exportButton: HTMLButtonElement;
+  importButton: HTMLButtonElement;
+  importFileInput: HTMLInputElement;
+  applyImportButton: HTMLButtonElement;
+  cancelImportButton: HTMLButtonElement;
 };
 
 type SiteProfileRowElements = {
@@ -83,6 +109,7 @@ type SiteProfileRowElements = {
 };
 
 const siteProfileRowsByList = new WeakMap<HTMLElement, SiteProfileRowElements[]>();
+const stagedImportByForm = new WeakMap<HTMLFormElement, PortableImportResult & { ok: true }>();
 
 function getOptionsElements(): OptionsElements | null {
   const form = document.getElementById("settingsForm");
@@ -98,6 +125,15 @@ function getOptionsElements(): OptionsElements | null {
   const recoveryStatusEl = document.getElementById("recoveryStatus");
   const recoveryList = document.getElementById("recoveryList");
   const recoveryEmpty = document.getElementById("recoveryEmpty");
+  const importExportStatusEl = document.getElementById("importExportStatus");
+  const importPreviewEl = document.getElementById("importPreview");
+  const importPreviewSummaryEl = document.getElementById("importPreviewSummary");
+  const importPreviewWarningsEl = document.getElementById("importPreviewWarnings");
+  const exportButton = document.getElementById("exportConfigButton");
+  const importButton = document.getElementById("importConfigButton");
+  const importFileInput = document.getElementById("importConfigFile");
+  const applyImportButton = document.getElementById("applyImportButton");
+  const cancelImportButton = document.getElementById("cancelImportButton");
 
   if (
     !form ||
@@ -112,7 +148,16 @@ function getOptionsElements(): OptionsElements | null {
     !settingsStatusEl ||
     !recoveryStatusEl ||
     !recoveryList ||
-    !recoveryEmpty
+    !recoveryEmpty ||
+    !importExportStatusEl ||
+    !importPreviewEl ||
+    !importPreviewSummaryEl ||
+    !importPreviewWarningsEl ||
+    !exportButton ||
+    !importButton ||
+    !importFileInput ||
+    !applyImportButton ||
+    !cancelImportButton
   ) {
     return null;
   }
@@ -130,7 +175,16 @@ function getOptionsElements(): OptionsElements | null {
     settingsStatusEl: settingsStatusEl as HTMLElement,
     recoveryStatusEl: recoveryStatusEl as HTMLElement,
     recoveryList: recoveryList as HTMLElement,
-    recoveryEmpty: recoveryEmpty as HTMLElement
+    recoveryEmpty: recoveryEmpty as HTMLElement,
+    importExportStatusEl: importExportStatusEl as HTMLElement,
+    importPreviewEl: importPreviewEl as HTMLElement,
+    importPreviewSummaryEl: importPreviewSummaryEl as HTMLElement,
+    importPreviewWarningsEl: importPreviewWarningsEl as HTMLElement,
+    exportButton: exportButton as HTMLButtonElement,
+    importButton: importButton as HTMLButtonElement,
+    importFileInput: importFileInput as HTMLInputElement,
+    applyImportButton: applyImportButton as HTMLButtonElement,
+    cancelImportButton: cancelImportButton as HTMLButtonElement
   };
 }
 
@@ -142,6 +196,10 @@ function setRecoveryStatus(elements: OptionsElements, message: string): void {
   elements.recoveryStatusEl.textContent = message;
 }
 
+function setImportExportStatus(elements: OptionsElements, message: string): void {
+  elements.importExportStatusEl.textContent = message;
+}
+
 function setBusy(elements: OptionsElements, busy: boolean): void {
   elements.idleHoursInput.disabled = busy;
   elements.skipPinnedInput.disabled = busy;
@@ -149,6 +207,11 @@ function setBusy(elements: OptionsElements, busy: boolean): void {
   elements.excludedHostsInput.disabled = busy;
   elements.addSiteProfileButton.disabled = busy;
   elements.saveButton.disabled = busy;
+  elements.exportButton.disabled = busy;
+  elements.importButton.disabled = busy;
+  elements.importFileInput.disabled = busy;
+  elements.applyImportButton.disabled = busy || !stagedImportByForm.has(elements.form);
+  elements.cancelImportButton.disabled = busy || !stagedImportByForm.has(elements.form);
 
   const rows = siteProfileRowsByList.get(elements.siteProfilesList) ?? [];
   for (const row of rows) {
@@ -159,6 +222,54 @@ function setBusy(elements: OptionsElements, busy: boolean): void {
     row.excludeFromSuspendInput.disabled = busy;
     row.deleteButton.disabled = busy;
   }
+}
+
+function formatCount(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function clearStagedImport(elements: OptionsElements): void {
+  stagedImportByForm.delete(elements.form);
+  elements.importPreviewEl.hidden = true;
+  elements.importPreviewSummaryEl.textContent = "";
+  elements.importPreviewWarningsEl.textContent = "";
+  elements.applyImportButton.disabled = true;
+  elements.cancelImportButton.disabled = true;
+  elements.importFileInput.value = "";
+}
+
+function renderImportPreview(elements: OptionsElements, result: PortableImportResult & { ok: true }): void {
+  stagedImportByForm.set(elements.form, result);
+  elements.importPreviewEl.hidden = false;
+  elements.importPreviewSummaryEl.textContent = [
+    `Schema v${result.preview.exportSchemaVersion}.`,
+    `Generated at minute ${result.preview.generatedAtMinute}.`,
+    `${formatCount(result.preview.counts.excludedHosts, "excluded host")}, ${formatCount(
+      result.preview.counts.siteProfiles,
+      "site profile"
+    )}, ${formatCount(result.preview.counts.recoveryEntries, "recovery entry")}.`
+  ].join(" ");
+
+  const warnings: string[] = [];
+  if (result.preview.ignoredInvalid.excludedHosts > 0) {
+    warnings.push(
+      `Ignored ${formatCount(result.preview.ignoredInvalid.excludedHosts, "invalid excluded host entry", "invalid excluded host entries")}.`
+    );
+  }
+  if (result.preview.ignoredInvalid.siteProfiles > 0) {
+    warnings.push(
+      `Ignored ${formatCount(result.preview.ignoredInvalid.siteProfiles, "invalid site profile entry", "invalid site profile entries")}.`
+    );
+  }
+  if (result.preview.ignoredInvalid.recoveryEntries > 0) {
+    warnings.push(
+      `Ignored ${formatCount(result.preview.ignoredInvalid.recoveryEntries, "invalid recovery entry", "invalid recovery entries")}.`
+    );
+  }
+
+  elements.importPreviewWarningsEl.textContent = warnings.join(" ");
+  elements.applyImportButton.disabled = false;
+  elements.cancelImportButton.disabled = false;
 }
 
 function clearIdleHoursError(elements: OptionsElements): void {
@@ -623,6 +734,135 @@ async function handleSave(elements: OptionsElements): Promise<void> {
   }
 }
 
+function buildExportFilename(now: Date): string {
+  const year = String(now.getUTCFullYear()).padStart(4, "0");
+  const month = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(now.getUTCDate()).padStart(2, "0");
+  const hours = String(now.getUTCHours()).padStart(2, "0");
+  const minutes = String(now.getUTCMinutes()).padStart(2, "0");
+  return `tab-suspender-config-${year}${month}${day}-${hours}${minutes}.json`;
+}
+
+function triggerJsonDownload(filename: string, content: string): void {
+  const link = document.createElement("a");
+  link.href = `data:application/json;charset=utf-8,${encodeURIComponent(content)}`;
+  link.download = filename;
+  link.click();
+}
+
+function getNowMinute(): number {
+  return Math.floor(Date.now() / 60_000);
+}
+
+async function handleExportConfiguration(elements: OptionsElements): Promise<void> {
+  setImportExportStatus(elements, optionsMessages.importExportStatus.exportPending);
+  setBusy(elements, true);
+
+  try {
+    const [settings, recoveryEntries] = await Promise.all([loadSettingsFromStorage(), loadRecoveryFromStorage()]);
+    const portableConfig = buildPortableConfig(settings, recoveryEntries, getNowMinute());
+    const content = serializePortableConfig(portableConfig);
+    triggerJsonDownload(buildExportFilename(new Date()), content);
+    setImportExportStatus(elements, optionsMessages.importExportStatus.exportReady);
+  } catch {
+    setImportExportStatus(elements, optionsMessages.importExportStatus.exportFailed);
+  } finally {
+    setBusy(elements, false);
+  }
+}
+
+async function readImportFileText(fileInput: HTMLInputElement): Promise<string | null> {
+  const files = fileInput.files;
+  if (!files || files.length === 0) {
+    return null;
+  }
+
+  const selectedFile = files[0] as { text?: () => Promise<string> };
+  if (selectedFile && typeof selectedFile.text === "function") {
+    return selectedFile.text();
+  }
+
+  return null;
+}
+
+async function handleImportConfiguration(elements: OptionsElements): Promise<void> {
+  setImportExportStatus(elements, optionsMessages.importExportStatus.importLoading);
+  setBusy(elements, true);
+
+  try {
+    const fileText = await readImportFileText(elements.importFileInput);
+
+    if (fileText === null) {
+      setImportExportStatus(elements, optionsMessages.importExportStatus.noFileSelected);
+      return;
+    }
+
+    const importResult = await parsePortableConfigJson(fileText);
+
+    if (!importResult.ok) {
+      clearStagedImport(elements);
+      setImportExportStatus(elements, `${optionsMessages.importExportStatus.importInvalid} ${importResult.message}`);
+      return;
+    }
+
+    renderImportPreview(elements, importResult);
+    setImportExportStatus(elements, optionsMessages.importExportStatus.importPreviewReady);
+  } catch {
+    clearStagedImport(elements);
+    setImportExportStatus(elements, optionsMessages.importExportStatus.importInvalid);
+  } finally {
+    setBusy(elements, false);
+  }
+}
+
+async function applyPortableImport(elements: OptionsElements, portableConfig: PortableConfigV1): Promise<void> {
+  const storageArea = resolveStorageArea(null);
+
+  if (!storageArea) {
+    throw new Error("Storage API unavailable.");
+  }
+
+  await setItemsWithCompatibility(storageArea, {
+    [SETTINGS_STORAGE_KEY]: {
+      schemaVersion: SETTINGS_SCHEMA_VERSION,
+      settings: portableConfig.settings
+    },
+    [RECOVERY_STORAGE_KEY]: {
+      schemaVersion: RECOVERY_SCHEMA_VERSION,
+      entries: portableConfig.recoveryState.entries
+    }
+  });
+}
+
+async function handleApplyImport(elements: OptionsElements): Promise<void> {
+  const stagedImport = stagedImportByForm.get(elements.form);
+
+  if (!stagedImport) {
+    setImportExportStatus(elements, optionsMessages.importExportStatus.noFileSelected);
+    return;
+  }
+
+  setImportExportStatus(elements, optionsMessages.importExportStatus.importApplyPending);
+  setBusy(elements, true);
+
+  try {
+    await applyPortableImport(elements, stagedImport.config);
+    renderSettings(elements, stagedImport.config.settings);
+    renderRecoveryList(elements, stagedImport.config.recoveryState.entries);
+    clearStagedImport(elements);
+    setImportExportStatus(elements, optionsMessages.importExportStatus.importApplied);
+  } catch {
+    setImportExportStatus(elements, optionsMessages.importExportStatus.importApplyFailed);
+  } finally {
+    setBusy(elements, false);
+  }
+}
+
+function handleCancelImport(elements: OptionsElements): void {
+  clearStagedImport(elements);
+  setImportExportStatus(elements, optionsMessages.importExportStatus.importCanceled);
+}
+
 function wireFormSubmission(elements: OptionsElements): void {
   elements.form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -636,6 +876,28 @@ function wireSiteProfileActions(elements: OptionsElements): void {
   });
 }
 
+function wireImportExportActions(elements: OptionsElements): void {
+  elements.exportButton.addEventListener("click", () => {
+    void handleExportConfiguration(elements);
+  });
+
+  elements.importButton.addEventListener("click", () => {
+    elements.importFileInput.click();
+  });
+
+  elements.importFileInput.addEventListener("change", () => {
+    void handleImportConfiguration(elements);
+  });
+
+  elements.applyImportButton.addEventListener("click", () => {
+    void handleApplyImport(elements);
+  });
+
+  elements.cancelImportButton.addEventListener("click", () => {
+    handleCancelImport(elements);
+  });
+}
+
 async function initializeOptionsPage(): Promise<void> {
   const elements = getOptionsElements();
 
@@ -645,6 +907,9 @@ async function initializeOptionsPage(): Promise<void> {
 
   wireFormSubmission(elements);
   wireSiteProfileActions(elements);
+  wireImportExportActions(elements);
+  clearStagedImport(elements);
+  setImportExportStatus(elements, "");
   await Promise.all([loadAndRenderSettings(elements), loadAndRenderRecovery(elements)]);
 }
 

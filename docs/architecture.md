@@ -27,7 +27,9 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 - `extension/src/url-safety.ts`
   - Shared restore/suspend URL validator (`http/https`, max length 2048).
 - `extension/src/options.ts`
-  - Options page load/save flow, validation, and status messaging.
+  - Options page load/save flow, validation, status messaging, and local configuration import/export controls.
+- `extension/src/portable-config.ts`
+  - Portable configuration envelope builder/parser for JSON export/import (`exportSchemaVersion: 1`).
 - `extension/src/suspended.ts`
   - Suspended page payload parsing, previous-title context rendering, URL copy feedback, and guarded restore action.
 - `extension/src/suspended-payload.ts`
@@ -87,6 +89,10 @@ Timeout basis uses:
   - `excludedHosts`: normalized/deduped, length and count bounded.
   - `siteProfiles`: bounded list (`<= 200`) of host rules with optional overrides (`idleMinutes`, `skipPinned`, `skipAudible`, `excludeFromSuspend`).
 - Runtime applies `storage.onChanged` updates without restart.
+- Portable import/export:
+  - Envelope schema: `{ exportSchemaVersion: 1, generatedAtMinute, settings, recoveryState }`.
+  - Import uses staged preview/confirm and sanitizes through existing settings/recovery normalization paths.
+  - Apply persists `settings` and `recoveryState` in a single storage `set` operation.
 
 ## Activity State Model
 - Storage key: `activityState`.

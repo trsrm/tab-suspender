@@ -56,6 +56,52 @@ export interface StoredRecoveryStateV1 {
   entries: RecoveryEntry[];
 }
 
+export type PortableConfigExportVersion = 1;
+
+export interface PortableRecoveryStateV1 {
+  schemaVersion: RecoverySchemaVersion;
+  entries: RecoveryEntry[];
+}
+
+export interface PortableConfigV1 {
+  exportSchemaVersion: PortableConfigExportVersion;
+  generatedAtMinute: number;
+  settings: StoredSettingsV2["settings"];
+  recoveryState: PortableRecoveryStateV1;
+}
+
+export interface PortableImportPreview {
+  exportSchemaVersion: PortableConfigExportVersion;
+  generatedAtMinute: number;
+  counts: {
+    excludedHosts: number;
+    siteProfiles: number;
+    recoveryEntries: number;
+  };
+  ignoredInvalid: {
+    excludedHosts: number;
+    siteProfiles: number;
+    recoveryEntries: number;
+  };
+}
+
+export type PortableImportErrorCode =
+  | "invalidJson"
+  | "invalidEnvelope"
+  | "unsupportedExportSchemaVersion";
+
+export type PortableImportResult =
+  | {
+      ok: true;
+      config: PortableConfigV1;
+      preview: PortableImportPreview;
+    }
+  | {
+      ok: false;
+      code: PortableImportErrorCode;
+      message: string;
+    };
+
 export type SuspendReason =
   | "eligible"
   | "active"

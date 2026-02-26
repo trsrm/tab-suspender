@@ -81,6 +81,25 @@
         gap: 12px;
       }
 
+      .actions-wrap {
+        flex-wrap: wrap;
+      }
+
+      .import-preview {
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        padding: 10px;
+        background: #f9fafb;
+      }
+
+      .import-preview p {
+        margin: 0;
+      }
+
+      .import-preview-actions {
+        margin-top: 10px;
+      }
+
       .site-profiles {
         list-style: none;
         margin: 0;
@@ -255,6 +274,25 @@
           <div class="actions">
             <button id="addSiteProfileButton" type="button">Add profile</button>
           </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Backup &amp; Restore</legend>
+          <p class="hint">Export a local backup file or import a saved configuration to replace current settings and recovery entries.</p>
+          <input id="importConfigFile" type="file" accept=".json,application/json" hidden />
+          <div class="actions actions-wrap">
+            <button id="exportConfigButton" type="button">Export configuration</button>
+            <button id="importConfigButton" type="button">Import configuration</button>
+          </div>
+          <div id="importPreview" class="import-preview" hidden>
+            <p id="importPreviewSummary" class="hint"></p>
+            <p id="importPreviewWarnings" class="hint"></p>
+            <div class="actions import-preview-actions">
+              <button id="applyImportButton" type="button" disabled>Apply import</button>
+              <button id="cancelImportButton" type="button" disabled>Cancel</button>
+            </div>
+          </div>
+          <p class="hint" id="importExportStatus" role="status" aria-live="polite"></p>
         </fieldset>
 
         <fieldset>

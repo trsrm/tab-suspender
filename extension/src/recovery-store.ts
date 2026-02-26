@@ -108,10 +108,7 @@ export async function saveRecoveryToStorage(
   storageArea?: StorageAreaLike | null
 ): Promise<StoredRecoveryStateV1> {
   const resolvedStorageArea = resolveStorageArea(storageArea);
-  const envelope: StoredRecoveryStateV1 = {
-    schemaVersion: RECOVERY_SCHEMA_VERSION,
-    entries: sanitizeEntries(entries)
-  };
+  const envelope = createRecoveryEnvelope(entries);
 
   if (resolvedStorageArea) {
     await setItemsWithCompatibility(resolvedStorageArea, {
@@ -122,5 +119,12 @@ export async function saveRecoveryToStorage(
   return {
     schemaVersion: envelope.schemaVersion,
     entries: envelope.entries.map(cloneEntry)
+  };
+}
+
+export function createRecoveryEnvelope(entries: unknown): StoredRecoveryStateV1 {
+  return {
+    schemaVersion: RECOVERY_SCHEMA_VERSION,
+    entries: sanitizeEntries(entries)
   };
 }
