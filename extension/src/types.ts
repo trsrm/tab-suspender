@@ -117,6 +117,34 @@ export interface SuspendDecision {
   reason: SuspendReason;
 }
 
+export interface SuspendDiagnosticsRequest {
+  type: "GET_SUSPEND_DIAGNOSTICS_SNAPSHOT";
+}
+
+export interface SuspendDiagnosticsEntry {
+  tabId: number;
+  title: string;
+  url: string;
+  reason: SuspendReason;
+  shouldSuspend: boolean;
+}
+
+export type SuspendDiagnosticsSummary = Record<SuspendReason, number>;
+
+export type SuspendDiagnosticsResponse =
+  | {
+      ok: true;
+      generatedAtMinute: number;
+      totalTabs: number;
+      entries: SuspendDiagnosticsEntry[];
+      summary: SuspendDiagnosticsSummary;
+      truncated: boolean;
+    }
+  | {
+      ok: false;
+      message: string;
+    };
+
 export interface TabActivity {
   tabId: number;
   windowId: number;
@@ -182,4 +210,13 @@ export function isStorageOnChangedMap(value: unknown): value is StorageOnChanged
 
 export function isStorageChange(value: unknown): value is StorageChange {
   return typeof value === "object" && value !== null;
+}
+
+export function isSuspendDiagnosticsRequest(value: unknown): value is SuspendDiagnosticsRequest {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const typed = value as SuspendDiagnosticsRequest;
+  return typed.type === "GET_SUSPEND_DIAGNOSTICS_SNAPSHOT";
 }

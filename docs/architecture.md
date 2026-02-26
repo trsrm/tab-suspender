@@ -6,6 +6,7 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 ## Runtime Components
 - `extension/src/background.ts`
   - Composition root: wires listeners, runtime gates, persistence queues, and internal background modules, including shared typed listener payload guards.
+  - Owns local diagnostics runtime messaging endpoint for options-page snapshot requests.
 - `extension/src/background/runtime-bootstrap.ts`
   - Startup hydration/prune/seed orchestration for deterministic runtime readiness.
 - `extension/src/background/activity-runtime.ts`
@@ -61,7 +62,11 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 4. Policy decision
 - Evaluator returns deterministic `{ shouldSuspend, reason }`.
 - Eligible tabs are rewritten to a self-contained `data:text/html` suspended document with encoded payload.
-5. Suspended page restore
+5. Diagnostics snapshot (Options-only)
+- Options requests `GET_SUSPEND_DIAGNOSTICS_SNAPSHOT` via runtime messaging.
+- Background evaluates open tabs through the same policy path used for sweep/action checks.
+- Response returns reason summary for all open tabs plus a bounded (`max 200`) per-tab diagnostics list.
+6. Suspended page restore
 - Suspended page validates payload URL before allowing restore.
 - Legacy `safari-extension://.../suspended.html?...` tabs are still recognized as already-suspended while extension runtime is available.
 - Invalid, unsupported, or oversized URLs remain blocked with explicit status text.

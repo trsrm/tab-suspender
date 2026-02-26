@@ -1,10 +1,12 @@
 import {
+  isSuspendDiagnosticsRequest,
   isStorageChange,
   isMeaningfulTabUpdatedChangeInfo,
   isStorageOnChangedMap,
   type DecodedSuspendPayload,
   type RecoveryEntry,
   type Settings,
+  type SuspendDiagnosticsResponse,
   type StorageChange,
   type SuspendPayload,
   type TabActivity
@@ -574,6 +576,29 @@ if (chrome.storage?.onChanged && typeof chrome.storage.onChanged.addListener ===
       handleStorageSettingsChange(changes, areaName ?? "");
     }
   );
+}
+
+if (chrome.runtime?.onMessage && typeof chrome.runtime.onMessage.addListener === "function") {
+  chrome.runtime.onMessage.addListener((message: unknown, _sender: unknown, sendResponse: (response: SuspendDiagnosticsResponse) => void) => {
+    if (!isSuspendDiagnosticsRequest(message)) {
+      return undefined;
+    }
+
+    void runtimeState.runtimeReady
+      .then(() => suspendRunner.getSuspendDiagnosticsSnapshot())
+      .then((response) => {
+        sendResponse(response);
+      })
+      .catch((error: unknown) => {
+        log("Failed to generate suspend diagnostics snapshot.", error);
+        sendResponse({
+          ok: false,
+          message: "Failed to generate suspend diagnostics snapshot."
+        });
+      });
+
+    return true;
+  });
 }
 
 scheduleSuspendSweepAlarm();

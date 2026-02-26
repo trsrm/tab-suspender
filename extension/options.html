@@ -155,6 +155,14 @@
         gap: 10px;
       }
 
+      .diagnostics-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 10px;
+      }
+
       .recovery-item {
         border: 1px solid #d1d5db;
         border-radius: 8px;
@@ -163,6 +171,12 @@
         align-items: center;
         justify-content: space-between;
         gap: 12px;
+      }
+
+      .diagnostics-item {
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        padding: 10px;
       }
 
       .recovery-item-details {
@@ -175,7 +189,17 @@
         margin: 0;
       }
 
+      .diagnostics-item-title,
+      .diagnostics-item-url,
+      .diagnostics-item-reason {
+        margin: 0;
+      }
+
       .recovery-item-title {
+        font-weight: 600;
+      }
+
+      .diagnostics-item-title {
         font-weight: 600;
       }
 
@@ -184,6 +208,19 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      .diagnostics-item-url {
+        color: #374151;
+        margin-top: 4px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .diagnostics-item-reason {
+        color: #6b7280;
+        margin-top: 4px;
       }
 
       .recovery-item-captured {
@@ -301,6 +338,17 @@
           <p class="hint" id="recoveryEmpty" role="status" aria-live="polite">Loading recently suspended tabs...</p>
           <p class="hint" id="recoveryStatus" role="status" aria-live="polite"></p>
           <ul id="recoveryList" class="recovery-list" aria-label="Recently suspended tabs"></ul>
+        </fieldset>
+
+        <fieldset>
+          <legend>Why tabs are not suspending</legend>
+          <p class="hint">Diagnostics are local-only and evaluate current open tabs against the active suspension policy.</p>
+          <div class="actions">
+            <button id="refreshDiagnosticsButton" type="button">Refresh diagnostics</button>
+          </div>
+          <p class="hint" id="diagnosticsStatus" role="status" aria-live="polite"></p>
+          <p class="hint" id="diagnosticsSummary" role="status" aria-live="polite"></p>
+          <ul id="diagnosticsList" class="diagnostics-list" aria-label="Suspension diagnostics"></ul>
         </fieldset>
 
         <div class="actions">

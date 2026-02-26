@@ -138,7 +138,11 @@ function createDom() {
     cancelImportButton: createNode("button", { disabled: true }),
     recoveryEmpty: createElement({ textContent: "Loading recently suspended tabs..." }),
     recoveryStatus: createElement({ textContent: "" }),
-    recoveryList: createNode("ul")
+    recoveryList: createNode("ul"),
+    diagnosticsStatus: createElement({ textContent: "" }),
+    diagnosticsSummary: createElement({ textContent: "" }),
+    diagnosticsList: createNode("ul"),
+    refreshDiagnosticsButton: createNode("button")
   };
 
   return {
@@ -159,7 +163,11 @@ function createDom() {
   };
 }
 
-function createChromeStorageMock({ storageSeed = {}, tabsCreateResponder = () => ({ id: 1 }) } = {}) {
+function createChromeStorageMock({
+  storageSeed = {},
+  tabsCreateResponder = () => ({ id: 1 }),
+  sendMessageResponder = () => ({ ok: false, message: "No diagnostics response." })
+} = {}) {
   const storageData = { ...storageSeed };
   const storageGetCalls = [];
   const storageSetCalls = [];
@@ -167,7 +175,30 @@ function createChromeStorageMock({ storageSeed = {}, tabsCreateResponder = () =>
 
   const chromeMock = {
     runtime: {
-      lastError: undefined
+      lastError: undefined,
+      sendMessage(message, callback) {
+        return Promise.resolve()
+          .then(() => sendMessageResponder(message))
+          .then((result) => {
+            if (callback) {
+              callback(result);
+            }
+
+            return result;
+          })
+          .catch((error) => {
+            if (callback) {
+              chromeMock.runtime.lastError = {
+                message: error instanceof Error ? error.message : String(error)
+              };
+              callback(undefined);
+              chromeMock.runtime.lastError = undefined;
+              return undefined;
+            }
+
+            throw error;
+          });
+      }
     },
     tabs: {
       create(createProperties, callback) {
@@ -238,9 +269,9 @@ async function flushAsyncWork() {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
-async function importOptionsWithMocks({ storageSeed = {}, tabsCreateResponder } = {}) {
+async function importOptionsWithMocks({ storageSeed = {}, tabsCreateResponder, sendMessageResponder } = {}) {
   const { elements, createdAnchors, document } = createDom();
-  const storageMock = createChromeStorageMock({ storageSeed, tabsCreateResponder });
+  const storageMock = createChromeStorageMock({ storageSeed, tabsCreateResponder, sendMessageResponder });
 
   globalThis.document = document;
   globalThis.chrome = storageMock.chromeMock;
@@ -517,6 +548,100 @@ test("recovery reopen failure updates recovery status without overwriting settin
   assert.equal(elements.status.textContent, "Settings loaded.");
   assert.equal(elements.recoveryStatus.textContent, "Failed to reopen suspended tab.");
   assert.equal(reopenButton.disabled, false);
+});
+
+test("diagnostics refresh renders summary and rows", { concurrency: false }, async () => {
+  const { elements } = await importOptionsWithMocks({
+    sendMessageResponder() {
+      return {
+        ok: true,
+        generatedAtMinute: 123,
+        totalTabs: 2,
+        truncated: false,
+        summary: {
+          active: 1,
+          pinned: 0,
+          audible: 0,
+          internalUrl: 0,
+          urlTooLong: 0,
+          excludedHost: 0,
+          timeoutNotReached: 1,
+          eligible: 0
+        },
+        entries: [
+          {
+            tabId: 5,
+            title: "A",
+            url: "https://example.com/a",
+            reason: "active",
+            shouldSuspend: false
+          },
+          {
+            tabId: 6,
+            title: "B",
+            url: "https://example.com/b",
+            reason: "timeoutNotReached",
+            shouldSuspend: false
+          }
+        ]
+      };
+    }
+  });
+
+  elements.refreshDiagnosticsButton.click();
+  await flushAsyncWork();
+  await flushAsyncWork();
+
+  assert.equal(elements.diagnosticsStatus.textContent, "Suspension diagnostics updated.");
+  assert.equal(elements.diagnosticsSummary.textContent.includes("Evaluated 2 tab(s)."), true);
+  assert.equal(elements.diagnosticsList.children.length, 2);
+  assert.equal(elements.diagnosticsList.children[0].children[0].textContent, "A");
+});
+
+test("diagnostics refresh shows failure message when runtime message fails", { concurrency: false }, async () => {
+  const { elements } = await importOptionsWithMocks({
+    sendMessageResponder() {
+      throw new Error("runtime failure");
+    }
+  });
+
+  elements.refreshDiagnosticsButton.click();
+  await flushAsyncWork();
+  await flushAsyncWork();
+
+  assert.equal(elements.diagnosticsStatus.textContent, "Failed to load suspension diagnostics. runtime failure");
+});
+
+test("diagnostics refresh empty/truncated states are rendered", { concurrency: false }, async () => {
+  const { elements } = await importOptionsWithMocks({
+    sendMessageResponder() {
+      return {
+        ok: true,
+        generatedAtMinute: 321,
+        totalTabs: 250,
+        truncated: true,
+        summary: {
+          active: 0,
+          pinned: 0,
+          audible: 0,
+          internalUrl: 0,
+          urlTooLong: 0,
+          excludedHost: 0,
+          timeoutNotReached: 250,
+          eligible: 0
+        },
+        entries: []
+      };
+    }
+  });
+
+  elements.refreshDiagnosticsButton.click();
+  await flushAsyncWork();
+  await flushAsyncWork();
+
+  assert.equal(elements.diagnosticsSummary.textContent.includes("Showing first 200 tabs."), true);
+  assert.equal(elements.diagnosticsList.children.length, 1);
+  assert.equal(elements.diagnosticsList.children[0].children[0].textContent, "No open tabs available for diagnostics.");
 });
 
 test("recovery list reuses unchanged row nodes across rerenders", { concurrency: false }, async () => {

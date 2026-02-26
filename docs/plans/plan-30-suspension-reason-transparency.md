@@ -1,85 +1,82 @@
 # Plan 30 - Suspension Reason Transparency
 
 ## Status
-Draft
+Implemented
 
 ## Goal
-Provide clear, user-visible diagnostics in Options explaining why current tabs are not yet suspend-eligible using existing policy reasons.
+Add a read-only diagnostics panel in Options that explains, for current open tabs, why each tab is or is not suspend-eligible using the existing deterministic policy reason taxonomy.
 
 ## Scope
-- Add diagnostics panel in Options that inspects open tabs and reports policy outcome reasons.
-- Reuse existing deterministic policy reason taxonomy.
-- Keep diagnostics read-only and local.
+- Add manual-refresh diagnostics UI to Options.
+- Add background runtime message endpoint for diagnostics snapshots.
+- Reuse existing policy evaluation flow without behavior precedence changes.
+- Show summary counts by reason and a bounded per-tab diagnostics list.
 
 ## Non-goals
-- No background telemetry or analytics.
-- No automatic policy changes based on diagnostics.
-- No modification to policy precedence.
-
-## User Value
-- Reduces confusion when tabs do not suspend as expected.
-- Improves self-service troubleshooting without external tooling.
-
-## Proposed UX/API/Data Model Changes
-- UX:
-  - Add `Why tabs are not suspending` panel in Options with per-tab reason labels.
-  - Include lightweight summary counts by reason (`active`, `pinned`, `audible`, `excludedHost`, `timeoutNotReached`, etc.).
-- API/runtime:
-  - Add internal query endpoint/message for options page to request snapshot policy evaluation results.
-- Data model/storage (anticipated):
-  - No required persistent schema changes; optional short-lived cache in memory only.
-- Types/interfaces (anticipated):
-  - Add typed diagnostics response contracts (tab id/title/url summary, reason, eligible flag).
-- Manifest (anticipated):
-  - No new permissions expected beyond existing `tabs`.
-
-## Risks and Failure Modes
-- Diagnostics can leak sensitive URL/title details if rendered without clear local-only framing.
-- Real-time snapshots may drift from next sweep minute and confuse expectations.
-- Large tab sets may make options diagnostics slow without paging/caps.
+- No telemetry or remote diagnostics.
+- No policy precedence changes.
+- No storage schema or manifest permission changes.
+- No automatic settings recommendations or modifications.
 
 ## Implementation Steps
-1. Define typed diagnostics message contract and reason mapping.
-2. Add background snapshot evaluator reusing existing policy evaluator inputs.
-3. Add options diagnostics UI with bounded list rendering and summary counts.
-4. Add tests for reason mapping correctness and message failure handling.
-5. Update docs with diagnostics caveats and local-only behavior.
+1. Added shared diagnostics request/response contracts and request type guard in `extension/src/types.ts`.
+2. Extended `suspend-runner` with `getSuspendDiagnosticsSnapshot()` that:
+   - reuses existing URL analysis/profile resolution/policy evaluation,
+   - evaluates all open tabs for summary counts,
+   - returns a bounded, deterministic tab list (`max 200`, reason-order then tabId order),
+   - returns non-throwing failure payloads on tab-query errors.
+3. Added `chrome.runtime.onMessage` handling in `background.ts` for `GET_SUSPEND_DIAGNOSTICS_SNAPSHOT`:
+   - waits for runtime readiness,
+   - returns typed success/failure diagnostics response,
+   - keeps diagnostics path read-only (no tab updates/recovery writes).
+4. Added Options diagnostics panel in `extension/options.html` + `extension/src/options.ts`:
+   - manual `Refresh diagnostics` trigger,
+   - dedicated diagnostics status channel,
+   - summary text by reason (includes `eligible`),
+   - per-tab rows (title + full URL + reason label),
+   - empty and failure handling.
+5. Added targeted automated coverage for diagnostics endpoint and options rendering states.
 
-## Files Expected to Change
-- `extension/src/background.ts`
-- `extension/src/policy.ts`
+## Files Added/Changed
 - `extension/src/types.ts`
+- `extension/src/background/suspend-runner.ts`
+- `extension/src/background.ts`
 - `extension/src/options.ts`
 - `extension/options.html`
-- `tests/policy-engine.test.mjs`
-- `tests/settings-ui.test.mjs`
+- `tests/helpers/background-harness.mjs`
 - `tests/background-event-wiring.test.mjs`
-- `README.md`
+- `tests/settings-ui.test.mjs`
 - `docs/architecture.md`
 - `docs/plans/plan-30-suspension-reason-transparency.md`
 - `ROADMAP.md`
 
-## Test/Evidence Expectations
-- `npm run build`
-- `npm run typecheck`
-- `node --test tests/policy-engine.test.mjs tests/settings-ui.test.mjs tests/background-event-wiring.test.mjs`
-- `npm run test`
-- Manual Safari check for diagnostics readability and reason consistency.
+## Tests/Evidence
+- Command: `npm run build`
+  - Result: passed.
+- Command: `npm run typecheck`
+  - Result: passed.
+- Command: `node --test tests/background-event-wiring.test.mjs tests/settings-ui.test.mjs tests/policy-engine.test.mjs`
+  - Result: passed (54 tests, 0 failures).
+- Command: `npm run test`
+  - Result: passed (126 tests, 0 failures).
 
 ## Exit Criteria
-- Options shows deterministic per-tab suspend reason diagnostics.
-- Diagnostics use existing reason taxonomy and do not alter policy behavior.
-- Failure paths show clear non-blocking status.
+- Options shows manual-refresh suspension diagnostics with summary counts and per-tab reasons.
+- Diagnostics reasons come from the existing policy evaluator reason taxonomy.
+- Diagnostics flow is local-only, read-only, and non-persistent.
+- Failure/empty/truncated states are non-blocking and explicit.
+- Targeted + full regression suites pass.
 
 ## Rollback
-- Revert Plan 30 files and rerun full tests.
+- Revert Plan 30 files listed above.
+- Re-run `npm run test` to confirm baseline behavior.
 
-## Dependencies / Cross-Plan References
-- Leverages policy reason outputs established in Plan 3 and runtime flow from Plan 13/15.
-- Can complement Plan 26 by surfacing pause/profile-derived reasons in future updates.
+## Decisions
+- Diagnostics refresh model is manual-only for v1.
+- Per-tab diagnostics exposes title + full URL + reason label.
+- Snapshot entry list is bounded to 200 rows for UI/runtime cost control; summary counts still evaluate all open tabs.
+- Reason ordering in diagnostics mirrors deterministic policy precedence ordering.
 
-## Scoring
-- Impact: 4
-- Effort: 3
-- Confidence: 4
-- Priority Score: 13
+## Retrospective
+- What changed: users can self-diagnose why tabs are not suspending without external tools or runtime mutations.
+- Risks left: manual Safari verification is still needed to evaluate readability/performance with very large real-world tab sets.

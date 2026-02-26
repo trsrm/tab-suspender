@@ -12,7 +12,16 @@ import {
   saveSettingsToStorage
 } from "./settings-store.js";
 import { normalizeExcludedHostEntries, normalizeSiteProfileHostRule } from "./matcher.js";
-import type { PortableConfigV1, PortableImportResult, Settings, SiteProfile } from "./types.js";
+import type {
+  PortableConfigV1,
+  PortableImportResult,
+  Settings,
+  SiteProfile,
+  SuspendDiagnosticsEntry,
+  SuspendDiagnosticsRequest,
+  SuspendDiagnosticsResponse,
+  SuspendReason
+} from "./types.js";
 import { RECOVERY_SCHEMA_VERSION, RECOVERY_STORAGE_KEY, loadRecoveryFromStorage } from "./recovery-store.js";
 import { formatCapturedAtMinuteUtc } from "./time-format.js";
 import { validateRestorableUrl } from "./url-safety.js";
@@ -22,6 +31,28 @@ import { resolveStorageArea, setItemsWithCompatibility } from "./storage-compat.
 export {};
 
 const RECOVERY_DEFAULT_TITLE = "Untitled tab";
+const SUSPEND_DIAGNOSTICS_REQUEST_TYPE = "GET_SUSPEND_DIAGNOSTICS_SNAPSHOT";
+const SUSPEND_DIAGNOSTICS_EMPTY_ROW = "No open tabs available for diagnostics.";
+const SUSPEND_REASON_ORDER: readonly SuspendReason[] = [
+  "active",
+  "pinned",
+  "audible",
+  "internalUrl",
+  "urlTooLong",
+  "excludedHost",
+  "timeoutNotReached",
+  "eligible"
+];
+const SUSPEND_REASON_LABELS: Record<SuspendReason, string> = {
+  active: "Active tab",
+  pinned: "Pinned tab",
+  audible: "Audible tab",
+  internalUrl: "Internal or unsupported URL",
+  urlTooLong: "URL exceeds max length",
+  excludedHost: "Excluded host/profile",
+  timeoutNotReached: "Idle timeout not reached",
+  eligible: "Eligible for suspension"
+};
 let siteProfileIdCounter = 0;
 
 const optionsMessages = {
@@ -59,6 +90,13 @@ const optionsMessages = {
     reopenButton: "Reopen",
     invalidRestoreUrlTitle: "URL is no longer eligible for restore."
   },
+  diagnostics: {
+    loading: "Loading suspension diagnostics...",
+    loaded: "Suspension diagnostics updated.",
+    failed: "Failed to load suspension diagnostics.",
+    truncated: "Showing first 200 tabs.",
+    summaryEmpty: "No tabs evaluated."
+  },
   siteProfiles: {
     hostLabel: "Host rule",
     idleHoursLabel: "Idle override (hours)",
@@ -86,6 +124,10 @@ type OptionsElements = {
   recoveryStatusEl: HTMLElement;
   recoveryList: HTMLElement;
   recoveryEmpty: HTMLElement;
+  diagnosticsStatusEl: HTMLElement;
+  diagnosticsSummaryEl: HTMLElement;
+  diagnosticsListEl: HTMLElement;
+  refreshDiagnosticsButton: HTMLButtonElement;
   importExportStatusEl: HTMLElement;
   importPreviewEl: HTMLElement;
   importPreviewSummaryEl: HTMLElement;
@@ -125,6 +167,10 @@ function getOptionsElements(): OptionsElements | null {
   const recoveryStatusEl = document.getElementById("recoveryStatus");
   const recoveryList = document.getElementById("recoveryList");
   const recoveryEmpty = document.getElementById("recoveryEmpty");
+  const diagnosticsStatusEl = document.getElementById("diagnosticsStatus");
+  const diagnosticsSummaryEl = document.getElementById("diagnosticsSummary");
+  const diagnosticsListEl = document.getElementById("diagnosticsList");
+  const refreshDiagnosticsButton = document.getElementById("refreshDiagnosticsButton");
   const importExportStatusEl = document.getElementById("importExportStatus");
   const importPreviewEl = document.getElementById("importPreview");
   const importPreviewSummaryEl = document.getElementById("importPreviewSummary");
@@ -149,6 +195,10 @@ function getOptionsElements(): OptionsElements | null {
     !recoveryStatusEl ||
     !recoveryList ||
     !recoveryEmpty ||
+    !diagnosticsStatusEl ||
+    !diagnosticsSummaryEl ||
+    !diagnosticsListEl ||
+    !refreshDiagnosticsButton ||
     !importExportStatusEl ||
     !importPreviewEl ||
     !importPreviewSummaryEl ||
@@ -176,6 +226,10 @@ function getOptionsElements(): OptionsElements | null {
     recoveryStatusEl: recoveryStatusEl as HTMLElement,
     recoveryList: recoveryList as HTMLElement,
     recoveryEmpty: recoveryEmpty as HTMLElement,
+    diagnosticsStatusEl: diagnosticsStatusEl as HTMLElement,
+    diagnosticsSummaryEl: diagnosticsSummaryEl as HTMLElement,
+    diagnosticsListEl: diagnosticsListEl as HTMLElement,
+    refreshDiagnosticsButton: refreshDiagnosticsButton as HTMLButtonElement,
     importExportStatusEl: importExportStatusEl as HTMLElement,
     importPreviewEl: importPreviewEl as HTMLElement,
     importPreviewSummaryEl: importPreviewSummaryEl as HTMLElement,
@@ -198,6 +252,10 @@ function setRecoveryStatus(elements: OptionsElements, message: string): void {
 
 function setImportExportStatus(elements: OptionsElements, message: string): void {
   elements.importExportStatusEl.textContent = message;
+}
+
+function setDiagnosticsStatus(elements: OptionsElements, message: string): void {
+  elements.diagnosticsStatusEl.textContent = message;
 }
 
 function setBusy(elements: OptionsElements, busy: boolean): void {
@@ -524,6 +582,10 @@ function setRecoveryEmpty(elements: OptionsElements, message: string, hidden: bo
   elements.recoveryEmpty.hidden = hidden;
 }
 
+function setDiagnosticsBusy(elements: OptionsElements, busy: boolean): void {
+  elements.refreshDiagnosticsButton.disabled = busy;
+}
+
 function createTabWithCompatibility(url: string): Promise<void> {
   const tabsApi = chrome?.tabs;
 
@@ -671,6 +733,148 @@ async function loadAndRenderRecovery(elements: OptionsElements): Promise<void> {
     elements.recoveryList.replaceChildren();
     setRecoveryEmpty(elements, optionsMessages.recoveryEmpty.loadFailed, false);
   }
+}
+
+function createDiagnosticsSummaryText(response: Extract<SuspendDiagnosticsResponse, { ok: true }>): string {
+  if (response.totalTabs === 0) {
+    return optionsMessages.diagnostics.summaryEmpty;
+  }
+
+  const parts: string[] = [];
+  for (const reason of SUSPEND_REASON_ORDER) {
+    const count = response.summary[reason];
+    parts.push(`${SUSPEND_REASON_LABELS[reason]}: ${count}`);
+  }
+
+  const suffix = response.truncated ? ` ${optionsMessages.diagnostics.truncated}` : "";
+  return `Evaluated ${response.totalTabs} tab(s). ${parts.join(" | ")}.${suffix}`;
+}
+
+function createDiagnosticsRow(entry: SuspendDiagnosticsEntry): HTMLElement {
+  const row = document.createElement("li");
+  row.className = "diagnostics-item";
+
+  const title = document.createElement("p");
+  title.className = "diagnostics-item-title";
+  title.textContent = entry.title.trim().length > 0 ? entry.title : RECOVERY_DEFAULT_TITLE;
+
+  const url = document.createElement("p");
+  url.className = "diagnostics-item-url";
+  url.textContent = entry.url;
+  url.title = entry.url;
+
+  const reason = document.createElement("p");
+  reason.className = "diagnostics-item-reason";
+  reason.textContent = SUSPEND_REASON_LABELS[entry.reason];
+
+  row.appendChild(title);
+  row.appendChild(url);
+  row.appendChild(reason);
+  return row;
+}
+
+function renderDiagnosticsList(elements: OptionsElements, entries: SuspendDiagnosticsEntry[]): void {
+  if (entries.length === 0) {
+    const emptyRow = document.createElement("li");
+    emptyRow.className = "diagnostics-item";
+    const text = document.createElement("p");
+    text.className = "diagnostics-item-title";
+    text.textContent = SUSPEND_DIAGNOSTICS_EMPTY_ROW;
+    emptyRow.appendChild(text);
+    elements.diagnosticsListEl.replaceChildren(emptyRow);
+    return;
+  }
+
+  const rows = entries.map((entry) => createDiagnosticsRow(entry));
+  elements.diagnosticsListEl.replaceChildren(...rows);
+}
+
+function sendRuntimeMessageWithCompatibility(request: SuspendDiagnosticsRequest): Promise<SuspendDiagnosticsResponse> {
+  const runtimeApi = chrome?.runtime;
+
+  if (!runtimeApi || typeof runtimeApi.sendMessage !== "function") {
+    return Promise.resolve({
+      ok: false,
+      message: "Runtime messaging is unavailable."
+    });
+  }
+
+  return new Promise<SuspendDiagnosticsResponse>((resolve) => {
+    let settled = false;
+
+    const resolveOnce = (response: SuspendDiagnosticsResponse): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(response);
+    };
+
+    const callback = (response: SuspendDiagnosticsResponse | undefined): void => {
+      if (settled) {
+        return;
+      }
+
+      const runtimeLastError = chrome?.runtime?.lastError;
+      if (runtimeLastError?.message) {
+        resolveOnce({
+          ok: false,
+          message: runtimeLastError.message
+        });
+        return;
+      }
+
+      resolveOnce(
+        response ?? {
+          ok: false,
+          message: "No diagnostics response."
+        }
+      );
+    };
+
+    try {
+      const maybePromise = runtimeApi.sendMessage(
+        request as Parameters<typeof runtimeApi.sendMessage>[0],
+        callback as Parameters<typeof runtimeApi.sendMessage>[1]
+      ) as Promise<SuspendDiagnosticsResponse> | void;
+
+      if (maybePromise && typeof maybePromise.then === "function") {
+        maybePromise.then((response) => callback(response)).catch((error: unknown) => {
+          resolveOnce({
+            ok: false,
+            message: error instanceof Error ? error.message : String(error)
+          });
+        });
+      }
+    } catch (error) {
+      resolveOnce({
+        ok: false,
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+}
+
+async function handleRefreshDiagnostics(elements: OptionsElements): Promise<void> {
+  setDiagnosticsBusy(elements, true);
+  setDiagnosticsStatus(elements, optionsMessages.diagnostics.loading);
+
+  const request: SuspendDiagnosticsRequest = {
+    type: SUSPEND_DIAGNOSTICS_REQUEST_TYPE
+  };
+
+  const response = await sendRuntimeMessageWithCompatibility(request);
+
+  if (!response.ok) {
+    setDiagnosticsStatus(elements, `${optionsMessages.diagnostics.failed} ${response.message}`);
+    setDiagnosticsBusy(elements, false);
+    return;
+  }
+
+  setDiagnosticsStatus(elements, optionsMessages.diagnostics.loaded);
+  elements.diagnosticsSummaryEl.textContent = createDiagnosticsSummaryText(response);
+  renderDiagnosticsList(elements, response.entries);
+  setDiagnosticsBusy(elements, false);
 }
 
 async function loadAndRenderSettings(elements: OptionsElements): Promise<void> {
@@ -898,6 +1102,12 @@ function wireImportExportActions(elements: OptionsElements): void {
   });
 }
 
+function wireDiagnosticsActions(elements: OptionsElements): void {
+  elements.refreshDiagnosticsButton.addEventListener("click", () => {
+    void handleRefreshDiagnostics(elements);
+  });
+}
+
 async function initializeOptionsPage(): Promise<void> {
   const elements = getOptionsElements();
 
@@ -908,13 +1118,18 @@ async function initializeOptionsPage(): Promise<void> {
   wireFormSubmission(elements);
   wireSiteProfileActions(elements);
   wireImportExportActions(elements);
+  wireDiagnosticsActions(elements);
   clearStagedImport(elements);
   setImportExportStatus(elements, "");
+  setDiagnosticsStatus(elements, "");
+  elements.diagnosticsSummaryEl.textContent = "";
+  renderDiagnosticsList(elements, []);
   await Promise.all([loadAndRenderSettings(elements), loadAndRenderRecovery(elements)]);
 }
 
 export const __testing = {
-  renderRecoveryList
+  renderRecoveryList,
+  renderDiagnosticsList
 };
 
 void initializeOptionsPage();

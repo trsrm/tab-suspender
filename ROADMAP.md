@@ -77,8 +77,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 24: Anti-pattern and code-health opportunities ([details](docs/plans/plan-24-anti-patterns-and-code-health.md))
 - [x] Plan 26: Per-site policy profiles ([details](docs/plans/plan-26-per-site-policy-profiles.md))
 - [x] Plan 28: Settings import/export ([details](docs/plans/plan-28-settings-import-export.md))
-- [ ] Plan 29: (draft) Manual suspend controls ([details](docs/plans/plan-29-manual-suspend-controls.md))
-- [ ] Plan 30: (draft) Suspension reason transparency ([details](docs/plans/plan-30-suspension-reason-transparency.md))
+- [x] Plan 30: Suspension reason transparency ([details](docs/plans/plan-30-suspension-reason-transparency.md))
 - [x] Plan 31: Disable/uninstall-safe suspended tab survival (prevent suspended tabs from closing when extension is disabled/uninstalled) ([details](docs/plans/plan-31-disable-uninstall-safe-suspended-tab-survival.md))
 - [x] Plan 32: Long-idle hours UX + aggressive sweep scaling (CPU-first) ([details](docs/plans/plan-32-hours-ui-and-long-idle-cadence.md))
 
@@ -196,6 +195,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-033**: Options now supports local configuration export/import via a versioned portable JSON envelope (`exportSchemaVersion: 1`) with staged preview/confirm and atomic dual-key (`settings` + `recoveryState`) apply.
   - Alternatives: immediate import apply without preview, or separate per-key writes.
   - Impact: user-controlled backup/restore with safer validation UX and no partial-write drift across settings/recovery state.
+- **D-034**: Suspension diagnostics are exposed as a manual, local-only options-page snapshot over runtime messaging, reusing existing policy reason taxonomy with bounded per-tab output (`max 200`) and full reason-count summaries.
+  - Alternatives: continuous auto-refresh diagnostics, telemetry-backed diagnostics, or unbounded per-tab rendering.
+  - Impact: transparent troubleshooting for suspend eligibility without changing policy behavior, storage schema, or runtime sweep cadence.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -222,6 +224,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-26: Completed Plan 31 disable/uninstall-safe suspended-tab survival with signed self-contained `data:` suspended pages and legacy extension-page compatibility detection.
 - 2026-02-26: Completed Plan 18 YAGNI pruning by removing legacy PING messaging, consolidating storage compatibility wrappers into `storage-compat.ts`, and minimizing background `__testing` surface.
 - 2026-02-26: Completed Plan 28 settings import/export with portable JSON schema v1, staged import preview/apply/cancel UX, atomic settings+recovery writes, and targeted parser/UI regression coverage.
+- 2026-02-26: Completed Plan 30 suspension reason transparency with manual options diagnostics refresh, local runtime snapshot messaging, deterministic reason summaries, and bounded per-tab diagnostics rendering.
 - 2026-02-26: Completed Plan 19 DRY consolidation by centralizing captured-time formatting and suspended-title truncation constants with parity tests.
 - 2026-02-26: Completed Plan 20 performance opportunities by removing repeated suspend-path URL parsing, optimizing activity persistence snapshots, and adding keyed recovery-list rerender reconciliation.
 - 2026-02-26: Completed Plan 21 reliability hardening with settings transition epoch guards, bounded persistence retries/backoff, and sweep failure-path invariant coverage.

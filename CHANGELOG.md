@@ -2,7 +2,14 @@
 
 All notable user-facing changes are documented in this file.
 
-Current release: **1.3.0**
+Current release: **1.4.0**
+
+## [1.4.0] - 2026-02-26
+- Added a new `Why tabs are not suspending` diagnostics panel in Options with manual refresh.
+- Added local-only per-tab suspension diagnostics showing tab title, full URL, and deterministic suspend reason.
+- Added reason summary counts across open tabs, including eligible tabs for transparency.
+- Added bounded diagnostics rendering (`max 200` tab rows) to keep Options responsive on large tab sets.
+- Added runtime diagnostics endpoint and regression coverage for diagnostics success, failure, empty, and truncated states.
 
 ## [1.3.0] - 2026-02-26
 - Added local configuration export to JSON from Options for portable backups.

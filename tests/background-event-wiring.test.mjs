@@ -16,6 +16,20 @@ function assertMinutePrecision(records) {
   }
 }
 
+async function requestSuspendDiagnosticsSnapshot(events, payload = { type: "GET_SUSPEND_DIAGNOSTICS_SNAPSHOT" }) {
+  const listener = events.runtimeOnMessage.listeners[0];
+
+  return new Promise((resolve) => {
+    const result = listener(payload, {}, (response) => {
+      resolve(response);
+    });
+
+    if (result !== true) {
+      resolve(undefined);
+    }
+  });
+}
+
 test("registers listeners, schedules alarm, and seeds active tabs on startup", { concurrency: false }, async () => {
   setNowMinute(15);
 
@@ -44,6 +58,7 @@ test("registers listeners, schedules alarm, and seeds active tabs on startup", {
   assert.equal(events.windowsOnFocusChanged.listeners.length, 1);
   assert.equal(events.alarmsOnAlarm.listeners.length, 1);
   assert.equal(events.actionOnClicked.listeners.length, 1);
+  assert.equal(events.runtimeOnMessage.listeners.length, 1);
 
   assert.deepEqual(calls.alarmCreateCalls, [
     {
@@ -96,6 +111,77 @@ test("activation and active-tab updates maintain minute-level activity semantics
   ]);
   assertMinutePrecision(snapshot);
   assert.equal(calls.tabsUpdateCalls.length, 0);
+});
+
+test("runtime diagnostics message returns snapshot and does not mutate tabs", { concurrency: false }, async () => {
+  setNowMinute(35);
+
+  const { events, calls, backgroundModule } = await importBackgroundWithMock({
+    queryResponder(queryInfo) {
+      if (queryInfo.active === true) {
+        return [];
+      }
+
+      return [
+        {
+          id: 10,
+          windowId: 1,
+          active: true,
+          pinned: false,
+          audible: false,
+          url: "https://example.com/active",
+          title: "Active"
+        },
+        {
+          id: 11,
+          windowId: 1,
+          active: false,
+          pinned: false,
+          audible: false,
+          url: "https://example.com/idle",
+          title: "Idle"
+        }
+      ];
+    }
+  });
+
+  await backgroundModule.__testing.waitForRuntimeReady();
+  backgroundModule.__testing.resetActivityState();
+
+  const response = await requestSuspendDiagnosticsSnapshot(events);
+  assert.equal(response.ok, true);
+  assert.equal(response.totalTabs, 2);
+  assert.equal(response.entries.length, 2);
+  assert.deepEqual(response.summary, {
+    active: 1,
+    pinned: 0,
+    audible: 0,
+    internalUrl: 0,
+    urlTooLong: 0,
+    excludedHost: 0,
+    timeoutNotReached: 1,
+    eligible: 0
+  });
+  assert.equal(response.entries[0].reason, "active");
+  assert.equal(calls.tabsUpdateCalls.length, 0);
+});
+
+test("runtime diagnostics message returns failure response when tab query fails", { concurrency: false }, async () => {
+  setNowMinute(36);
+
+  const { events, backgroundModule } = await importBackgroundWithMock({
+    queryResponder() {
+      throw new Error("query failed");
+    }
+  });
+
+  await backgroundModule.__testing.waitForRuntimeReady();
+  const response = await requestSuspendDiagnosticsSnapshot(events);
+
+  assert.deepEqual(response, {
+    ok: false,
+    message: "Failed to read open tabs for diagnostics."
+  });
 });
 
 test("inactive tab updates do not reset idle activity timestamps", { concurrency: false }, async () => {
