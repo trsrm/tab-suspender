@@ -25,6 +25,7 @@ DRY here means centralizing repeated logic with stable contracts to reduce bug-f
 
 ## Recommendations
 ### D19-1
+- Status note: superseded by Plan 18 implementation (`storage-compat.ts` shared adapter in use).
 - Finding: three storage modules duplicate callback/promise compatibility wrappers.
 - Evidence: `getRuntimeLastError`, `getStorageArea`, `getWithCompatibility`, and `setWithCompatibility` are repeated in:
   - `extension/src/settings-store.ts`

@@ -1,34 +1,16 @@
 import type { RecoveryEntry, RecoverySchemaVersion, StoredRecoveryStateV1 } from "./types.js";
 import { MAX_RESTORABLE_URL_LENGTH, validateRestorableUrl } from "./url-safety.js";
+import {
+  getKeyWithCompatibility,
+  resolveStorageArea,
+  setItemsWithCompatibility,
+  type StorageAreaLike
+} from "./storage-compat.js";
 
 export const RECOVERY_STORAGE_KEY = "recoveryState";
 export const RECOVERY_SCHEMA_VERSION: RecoverySchemaVersion = 1;
 export const MAX_RECOVERY_ENTRIES = 100;
 const MAX_RECOVERY_TITLE_LENGTH = 120;
-
-type StorageArea = {
-  get: (...args: unknown[]) => unknown;
-  set: (...args: unknown[]) => unknown;
-};
-
-function getRuntimeLastError(): { message?: string } | undefined {
-  const runtime = (globalThis as { chrome?: { runtime?: { lastError?: { message?: string } } } }).chrome?.runtime;
-  return runtime?.lastError;
-}
-
-function getStorageArea(storageArea: StorageArea | null | undefined): StorageArea | null {
-  if (storageArea && typeof storageArea.get === "function" && typeof storageArea.set === "function") {
-    return storageArea;
-  }
-
-  const runtimeStorage = (globalThis as { chrome?: { storage?: { local?: StorageArea } } }).chrome?.storage?.local;
-
-  if (runtimeStorage && typeof runtimeStorage.get === "function" && typeof runtimeStorage.set === "function") {
-    return runtimeStorage;
-  }
-
-  return null;
-}
 
 function cloneEntry(entry: RecoveryEntry): RecoveryEntry {
   return {
@@ -106,146 +88,29 @@ export function decodeStoredRecoveryState(value: unknown): RecoveryEntry[] {
   return sanitizeEntries(record.entries);
 }
 
-function getWithCompatibility(storageArea: StorageArea, key: string): Promise<unknown> {
-  return new Promise<unknown>((resolve, reject) => {
-    let settled = false;
-
-    const callback = (result: unknown): void => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      const lastError = getRuntimeLastError();
-
-      if (lastError?.message) {
-        reject(new Error(lastError.message));
-        return;
-      }
-
-      if (typeof result === "object" && result !== null) {
-        resolve((result as Record<string, unknown>)[key]);
-        return;
-      }
-
-      resolve(undefined);
-    };
-
-    try {
-      const maybePromise = storageArea.get(key, callback) as Promise<unknown> | void;
-
-      if (maybePromise && typeof maybePromise.then === "function") {
-        maybePromise
-          .then((result) => {
-            if (settled) {
-              return;
-            }
-
-            settled = true;
-
-            if (typeof result === "object" && result !== null) {
-              resolve((result as Record<string, unknown>)[key]);
-              return;
-            }
-
-            resolve(undefined);
-          })
-          .catch((error: unknown) => {
-            if (settled) {
-              return;
-            }
-
-            settled = true;
-            reject(error instanceof Error ? error : new Error(String(error)));
-          });
-      }
-    } catch (error) {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      reject(error instanceof Error ? error : new Error(String(error)));
-    }
-  });
-}
-
-function setWithCompatibility(storageArea: StorageArea, items: Record<string, unknown>): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    let settled = false;
-
-    const callback = (): void => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      const lastError = getRuntimeLastError();
-
-      if (lastError?.message) {
-        reject(new Error(lastError.message));
-        return;
-      }
-
-      resolve();
-    };
-
-    try {
-      const maybePromise = storageArea.set(items, callback) as Promise<unknown> | void;
-
-      if (maybePromise && typeof maybePromise.then === "function") {
-        maybePromise
-          .then(() => {
-            if (settled) {
-              return;
-            }
-
-            settled = true;
-            resolve();
-          })
-          .catch((error: unknown) => {
-            if (settled) {
-              return;
-            }
-
-            settled = true;
-            reject(error instanceof Error ? error : new Error(String(error)));
-          });
-      }
-    } catch (error) {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      reject(error instanceof Error ? error : new Error(String(error)));
-    }
-  });
-}
-
-export async function loadRecoveryFromStorage(storageArea?: StorageArea | null): Promise<RecoveryEntry[]> {
-  const resolvedStorageArea = getStorageArea(storageArea);
+export async function loadRecoveryFromStorage(storageArea?: StorageAreaLike | null): Promise<RecoveryEntry[]> {
+  const resolvedStorageArea = resolveStorageArea(storageArea);
 
   if (!resolvedStorageArea) {
     return [];
   }
 
-  const storedValue = await getWithCompatibility(resolvedStorageArea, RECOVERY_STORAGE_KEY);
+  const storedValue = await getKeyWithCompatibility(resolvedStorageArea, RECOVERY_STORAGE_KEY);
   return decodeStoredRecoveryState(storedValue);
 }
 
 export async function saveRecoveryToStorage(
   entries: unknown,
-  storageArea?: StorageArea | null
+  storageArea?: StorageAreaLike | null
 ): Promise<StoredRecoveryStateV1> {
-  const resolvedStorageArea = getStorageArea(storageArea);
+  const resolvedStorageArea = resolveStorageArea(storageArea);
   const envelope: StoredRecoveryStateV1 = {
     schemaVersion: RECOVERY_SCHEMA_VERSION,
     entries: sanitizeEntries(entries)
   };
 
   if (resolvedStorageArea) {
-    await setWithCompatibility(resolvedStorageArea, {
+    await setItemsWithCompatibility(resolvedStorageArea, {
       [RECOVERY_STORAGE_KEY]: envelope
     });
   }

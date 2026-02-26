@@ -28,7 +28,6 @@ export function createChromeMock({
 } = {}) {
   const runtimeOnInstalled = createEvent();
   const runtimeOnStartup = createEvent();
-  const runtimeOnMessage = createEvent();
 
   const tabsOnActivated = createEvent();
   const tabsOnUpdated = createEvent();
@@ -51,7 +50,6 @@ export function createChromeMock({
     runtime: {
       onInstalled: runtimeOnInstalled,
       onStartup: runtimeOnStartup,
-      onMessage: runtimeOnMessage,
       lastError: undefined,
       getURL(relativePath) {
         return `safari-extension://test-extension/${relativePath}`;
@@ -161,7 +159,6 @@ export function createChromeMock({
     events: {
       runtimeOnInstalled,
       runtimeOnStartup,
-      runtimeOnMessage,
       tabsOnActivated,
       tabsOnUpdated,
       tabsOnRemoved,

@@ -244,12 +244,6 @@ export function createActivityRuntime(options: ActivityRuntimeOptions) {
     }
   }
 
-  function getActiveTabByWindowSnapshot(): Array<{ windowId: number; tabId: number }> {
-    return Array.from(activeTabIdByWindowId.entries())
-      .map(([windowId, tabId]) => ({ windowId, tabId }))
-      .sort((a, b) => a.windowId - b.windowId);
-  }
-
   function resetActivityState(): void {
     activityByTabId.clear();
     activeTabIdByWindowId.clear();
@@ -259,7 +253,6 @@ export function createActivityRuntime(options: ActivityRuntimeOptions) {
     hydrateFromStorage,
     persistActivitySnapshot,
     snapshotActivityState,
-    getActiveTabByWindowSnapshot,
     resetActivityState,
     markTabActive,
     markTabUpdated,

@@ -20,6 +20,8 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
   - Pure policy evaluator with deterministic precedence and reason output.
 - `extension/src/settings-store.ts`
   - Versioned settings decode/sanitize/load/save helpers for `chrome.storage.local`.
+- `extension/src/storage-compat.ts`
+  - Shared callback/promise storage API adapter with unified `runtime.lastError` handling.
 - `extension/src/matcher.ts`
   - Host exclusion normalization and exact/wildcard hostname matching.
 - `extension/src/url-safety.ts`
@@ -114,7 +116,8 @@ Used by:
 
 ## Reliability and Failure Handling
 - Background logs and continues when individual tab updates fail.
-- Query/update wrappers support callback and Promise-style extension APIs.
+- Tab query/update wrappers in background runtime support callback and Promise-style extension APIs.
+- Storage load/save wrappers are centralized in `storage-compat.ts`.
 - Suspend sweeps skip already-suspended `data:` pages (signature-validated) and legacy extension suspended pages.
 - Invalid/missing activity defaults to non-suspension (`timeoutNotReached`).
 - Invalid storage payload falls back to defaults.

@@ -68,7 +68,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 15: Safari CPU reduction via adaptive sweep cadence + candidate filtering ([details](docs/plans/plan-15-safari-cpu-reduction.md))
 - [x] Plan 16: Installable Safari packaging baseline (in-repo Xcode wrapper + sync workflow) ([details](docs/plans/plan-16-installable-safari-packaging-baseline.md))
 - [x] Plan 17: KISS refactor of background runtime (modularization + shared persist queue + sweep coordinator) ([details](docs/plans/plan-17-kiss-simplification-opportunities.md))
-- [ ] Plan 18: (draft) YAGNI pruning opportunities ([details](docs/plans/plan-18-yagni-pruning-opportunities.md))
+- [x] Plan 18: YAGNI pruning opportunities (runtime surface + shared storage compatibility adapter) ([details](docs/plans/plan-18-yagni-pruning-opportunities.md))
 - [ ] Plan 19: (draft) DRY consolidation opportunities ([details](docs/plans/plan-19-dry-consolidation-opportunities.md))
 - [ ] Plan 20: (draft) Performance opportunities ([details](docs/plans/plan-20-performance-opportunities.md))
 - [ ] Plan 21: (draft) Reliability hardening opportunities ([details](docs/plans/plan-21-reliability-hardening-opportunities.md))
@@ -171,6 +171,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-024**: Background runtime internals are modularized into dedicated components (`runtime-bootstrap`, `activity-runtime`, `persist-queue`, `sweep-coordinator`, `suspend-runner`) with `background.ts` as composition root and no behavior-contract changes.
   - Alternatives: keep single-file runtime orchestration, or perform behavior-changing refactor alongside module split.
   - Impact: lower coupling and clearer ownership boundaries for future maintenance while preserving existing suspend and persistence semantics.
+- **D-025**: Legacy background PING runtime messaging was removed, storage callback/promise compatibility wrappers were centralized in `storage-compat.ts`, and `background.ts` test hooks were reduced to active usage only.
+  - Alternatives: keep legacy PING surface and per-store wrapper duplication.
+  - Impact: smaller runtime API surface, lower maintenance fan-out for storage compatibility fixes, and clearer production-vs-test boundaries.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -195,3 +198,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-26: Completed Plan 12 feature discovery analysis and generated draft Plans 25-30 for user-facing capability expansion without runtime changes.
 - 2026-02-26: Completed Plan 32 long-idle hours UX with minute-compatible storage, 24-hour default timeout, and 30-minute max sweep cadence scaling.
 - 2026-02-26: Completed Plan 31 disable/uninstall-safe suspended-tab survival with signed self-contained `data:` suspended pages and legacy extension-page compatibility detection.
+- 2026-02-26: Completed Plan 18 YAGNI pruning by removing legacy PING messaging, consolidating storage compatibility wrappers into `storage-compat.ts`, and minimizing background `__testing` surface.

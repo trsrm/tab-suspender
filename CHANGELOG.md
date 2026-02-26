@@ -2,7 +2,13 @@
 
 All notable user-facing changes are documented in this file.
 
-Current release: **1.1.2**
+Current release: **1.1.3**
+
+## [1.1.3] - 2026-02-26
+- Removed legacy background PING message handling to reduce unsupported runtime API surface.
+- Consolidated storage callback/promise compatibility handling into a shared adapter used by settings, activity, and recovery stores.
+- Reduced background test-hook surface (`__testing`) to only active regression needs.
+- Kept suspend, settings, and recovery behavior stable with full regression pass.
 
 ## [1.1.2] - 2026-02-26
 - Refactored background runtime into focused internal modules while preserving runtime behavior.

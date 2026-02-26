@@ -42,7 +42,6 @@ test("registers listeners, schedules alarm, and seeds active tabs on startup", {
   assert.equal(events.tabsOnRemoved.listeners.length, 1);
   assert.equal(events.tabsOnReplaced.listeners.length, 1);
   assert.equal(events.windowsOnFocusChanged.listeners.length, 1);
-  assert.equal(events.runtimeOnMessage.listeners.length, 1);
   assert.equal(events.alarmsOnAlarm.listeners.length, 1);
   assert.equal(events.actionOnClicked.listeners.length, 1);
 
@@ -203,21 +202,6 @@ test("remove and replace events keep activity state bounded", { concurrency: fal
   ]);
   assertMinutePrecision(snapshot);
   assert.equal(calls.tabsUpdateCalls.length, 0);
-});
-
-test("PING response remains unchanged", { concurrency: false }, async () => {
-  setNowMinute(50);
-
-  const { events, backgroundModule } = await importBackgroundWithMock();
-  await backgroundModule.__testing.waitForRuntimeReady();
-  backgroundModule.__testing.resetActivityState();
-
-  let response;
-  events.runtimeOnMessage.dispatch({ type: "PING" }, { id: "test-sender" }, (payload) => {
-    response = payload;
-  });
-
-  assert.deepEqual(response, { ok: true, phase: "skeleton" });
 });
 
 test("alarm ticks are cadence-gated and do not sweep every minute", { concurrency: false }, async () => {

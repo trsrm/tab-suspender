@@ -479,31 +479,11 @@ if (chrome.storage?.onChanged && typeof chrome.storage.onChanged.addListener ===
   );
 }
 
-chrome.runtime.onMessage.addListener(
-  (
-    message: unknown,
-    sender: { id?: string } | undefined,
-    sendResponse: (response: unknown) => void
-  ) => {
-    const typedMessage = message as { type?: string } | null | undefined;
-
-    if (typedMessage?.type === "PING") {
-      sendResponse({ ok: true, phase: "skeleton" });
-      return;
-    }
-
-    log("Ignored message in skeleton mode.", { message, sender: sender?.id });
-  }
-);
-
 scheduleSuspendSweepAlarm();
 
 export const __testing = {
   getActivitySnapshot(): TabActivity[] {
     return activityRuntime.snapshotActivityState();
-  },
-  getActiveTabByWindowSnapshot(): Array<{ windowId: number; tabId: number }> {
-    return activityRuntime.getActiveTabByWindowSnapshot();
   },
   resetActivityState(): void {
     activityRuntime.resetActivityState();
@@ -511,12 +491,6 @@ export const __testing = {
   },
   runSuspendSweep(nowMinute?: number): Promise<void> {
     return suspendRunner.runSuspendSweep(nowMinute);
-  },
-  waitForSettingsHydration(): Promise<void> {
-    return settingsReady;
-  },
-  waitForActivityHydration(): Promise<void> {
-    return activityReady;
   },
   waitForRuntimeReady(): Promise<void> {
     return runtimeReady;

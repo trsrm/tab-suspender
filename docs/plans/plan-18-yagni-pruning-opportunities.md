@@ -1,91 +1,71 @@
-# Plan 18 - YAGNI Pruning Opportunities
+# Plan 18 - YAGNI Pruning Opportunities (Y18-1 + Y18-2 + Y18-3)
 
 ## Status
-Draft
+Implemented
 
 ## Goal
-Remove or defer features and extension points that are not currently required by product goals, reducing maintenance burden.
+Remove speculative or legacy runtime surface area that does not provide current v1 product value while preserving user-visible suspension behavior.
 
 ## Scope
-- Identify interfaces and pathways that exceed current v1 requirements.
-- Keep user-visible behavior stable unless removing dead/unreachable behavior.
+- Remove legacy `runtime.onMessage` PING surface from production background runtime.
+- Consolidate duplicated storage callback/promise compatibility wrappers into one shared storage adapter.
+- Reduce `background.ts` `__testing` exports to only hooks currently required by tests.
+- Keep policy behavior, storage schema, and UI behavior unchanged.
 
 ## Non-goals
-- No new features.
-- No changes to policy defaults.
-- No deletion of test-only utilities that are actively required.
-
-## Lens Definition
-YAGNI here means removing speculative flexibility that is not delivering current value and increases maintenance cost.
-
-## Scoring Model
-- `Impact` (1-5)
-- `Effort` (1-5)
-- `Confidence` (1-5)
-- `Priority Score = (Impact * Confidence) - Effort`
-
-## Recommendations
-### Y18-1
-- Finding: `runtime.onMessage` returns a legacy skeleton ping payload (`{ ok: true, phase: "skeleton" }`) that is no longer part of core behavior.
-- Evidence: message handler in `extension/src/background.ts` only serves PING and logs all other messages.
-- Risk if unchanged: stale contract can be mistaken as supported API surface.
-- Proposed change: either remove runtime messaging surface entirely or update contract to current runtime version semantics and document it.
-- Estimated impact: reduced surface area and clearer API intent.
-- Complexity: low.
-- Dependencies: update tests asserting PING response behavior.
-- Rollback: restore PING listener and prior test expectations.
-- Score: Impact 3, Effort 1, Confidence 5, Priority Score 14.
-
-### Y18-2
-- Finding: compatibility wrappers in each store support both callback and promise execution paths even though tests currently exercise promise-first behavior.
-- Evidence: duplicated wrapper implementations in `settings-store.ts`, `activity-store.ts`, `recovery-store.ts`.
-- Risk if unchanged: extra code paths raise maintenance and test burden.
-- Proposed change: define a single shared storage adapter and keep only compatibility behavior with demonstrated runtime need.
-- Estimated impact: smaller future maintenance footprint.
-- Complexity: medium.
-- Dependencies: coordinate with DRY plan D19-1.
-- Rollback: restore per-store wrappers.
-- Score: Impact 4, Effort 3, Confidence 3, Priority Score 9.
-
-### Y18-3
-- Finding: `background.ts` exports broad `__testing` hooks that may exceed minimum test interface needs.
-- Evidence: multiple helper methods exposed from production module under `__testing` export.
-- Risk if unchanged: accidental production coupling to test-only affordances.
-- Proposed change: reduce exported test hooks to minimal required surface or move test harness entrypoints behind dev-only module boundary.
-- Estimated impact: cleaner public runtime module boundary.
-- Complexity: medium.
-- Dependencies: test harness updates (`tests/helpers/background-harness.mjs`).
-- Rollback: restore existing `__testing` API.
-- Score: Impact 3, Effort 3, Confidence 3, Priority Score 6.
+- No policy precedence or timeout behavior changes.
+- No schema version bump for settings/activity/recovery envelopes.
+- No options/suspended page UX changes.
 
 ## Implementation Steps
-1. Inventory currently consumed test hooks and runtime messaging usage.
-2. Remove or narrow unused speculative interfaces.
-3. Update tests/docs to reflect reduced surface.
-4. Validate full regression suite.
+1. Inventoried active `__testing` usage and removed unused hook exports.
+2. Removed the background `runtime.onMessage` listener and legacy PING response path.
+3. Added shared storage adapter module:
+   - `resolveStorageArea(...)`
+   - `getKeyWithCompatibility(...)`
+   - `setItemsWithCompatibility(...)`
+4. Refactored `settings-store`, `activity-store`, and `recovery-store` to use shared adapter helpers.
+5. Removed obsolete message-listener assertions/tests from background wiring tests.
+6. Updated architecture/roadmap plan records and decision log.
 
-## Files Expected to Change
+## Files Added/Changed
+- `extension/src/storage-compat.ts` (new)
 - `extension/src/background.ts`
+- `extension/src/background/activity-runtime.ts`
 - `extension/src/settings-store.ts`
 - `extension/src/activity-store.ts`
 - `extension/src/recovery-store.ts`
-- `tests/helpers/background-harness.mjs`
 - `tests/background-event-wiring.test.mjs`
+- `tests/helpers/background-harness.mjs`
 - `docs/architecture.md`
 - `docs/plans/plan-18-yagni-pruning-opportunities.md`
 - `ROADMAP.md`
 
-## Test/Evidence Expectations
-- `npm run build`
-- `node --test tests/background-event-wiring.test.mjs tests/settings-runtime.test.mjs`
-- `npm run test`
+## Tests/Evidence
+- Command: `npm run build`
+  - Result: passed.
+- Command: `node --test tests/background-event-wiring.test.mjs tests/settings-runtime.test.mjs tests/recovery-store.test.mjs tests/suspend-action.test.mjs`
+  - Result: passed (38 tests, 0 failures).
+- Command: `npm run test`
+  - Result: passed (80 tests, 0 failures).
 
 ## Exit Criteria
-- Unused or stale extension points are removed or explicitly justified.
-- Test surface matches intentional runtime API boundaries.
+- Legacy PING runtime message API removed from production background runtime.
+- Shared storage compatibility adapter replaces duplicated wrapper logic across all three stores.
+- `background.ts` `__testing` surface reduced to active requirements.
+- Targeted + full regression suites pass.
 
 ## Rollback
-- Revert Plan 18 files and re-run `npm run test`.
+- Revert Plan 18 touched files listed above.
+- Re-run:
+  - `npm run build`
+  - `npm run test`
 
-## Risks Left
-- Some compatibility paths may still be needed for Safari-specific edge behavior and should be retained only with explicit rationale.
+## Decisions
+- Runtime messaging is not a supported v1 background API surface; remove PING instead of versioning it.
+- Shared storage compatibility behavior is centralized now (superseding overlap with Plan 19 draft item `D19-1`).
+- Keep only currently used `__testing` hooks to avoid production coupling to test-only convenience APIs.
+
+## Retrospective
+- What changed: runtime and store surface area is smaller, with one storage compatibility implementation and no stale message contract.
+- Risks left: if future Safari API behavior diverges, compatibility adjustments now route through one shared adapter and should be covered by targeted storage tests.

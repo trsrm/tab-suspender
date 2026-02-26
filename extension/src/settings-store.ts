@@ -1,5 +1,11 @@
 import type { Settings, SettingsSchemaVersion, StoredSettingsV1 } from "./types.js";
 import { normalizeExcludedHostEntries } from "./matcher.js";
+import {
+  getKeyWithCompatibility,
+  resolveStorageArea,
+  setItemsWithCompatibility,
+  type StorageAreaLike
+} from "./storage-compat.js";
 
 export const SETTINGS_STORAGE_KEY = "settings";
 export const SETTINGS_SCHEMA_VERSION: SettingsSchemaVersion = 1;
@@ -17,16 +23,6 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   skipAudible: true
 });
 
-type StorageArea = {
-  get: (...args: unknown[]) => unknown;
-  set: (...args: unknown[]) => unknown;
-};
-
-function getRuntimeLastError(): { message?: string } | undefined {
-  const runtime = (globalThis as { chrome?: { runtime?: { lastError?: { message?: string } } } }).chrome?.runtime;
-  return runtime?.lastError;
-}
-
 function cloneSettings(settings: Settings): Settings {
   return {
     idleMinutes: settings.idleMinutes,
@@ -34,20 +30,6 @@ function cloneSettings(settings: Settings): Settings {
     skipPinned: settings.skipPinned,
     skipAudible: settings.skipAudible
   };
-}
-
-function getStorageArea(storageArea: StorageArea | null | undefined): StorageArea | null {
-  if (storageArea && typeof storageArea.get === "function" && typeof storageArea.set === "function") {
-    return storageArea;
-  }
-
-  const runtimeStorage = (globalThis as { chrome?: { storage?: { local?: StorageArea } } }).chrome?.storage?.local;
-
-  if (runtimeStorage && typeof runtimeStorage.get === "function" && typeof runtimeStorage.set === "function") {
-    return runtimeStorage;
-  }
-
-  return null;
 }
 
 function toInteger(value: unknown): number | null {
@@ -118,139 +100,22 @@ export function decodeStoredSettings(value: unknown): Settings {
   return sanitizeSettings(record.settings, DEFAULT_SETTINGS);
 }
 
-function getWithCompatibility(storageArea: StorageArea, key: string): Promise<unknown> {
-  return new Promise<unknown>((resolve, reject) => {
-    let settled = false;
-
-    const callback = (result: unknown): void => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      const lastError = getRuntimeLastError();
-
-      if (lastError?.message) {
-        reject(new Error(lastError.message));
-        return;
-      }
-
-      if (typeof result === "object" && result !== null) {
-        resolve((result as Record<string, unknown>)[key]);
-        return;
-      }
-
-      resolve(undefined);
-    };
-
-    try {
-      const maybePromise = storageArea.get(key, callback) as Promise<unknown> | void;
-
-      if (maybePromise && typeof maybePromise.then === "function") {
-        maybePromise
-          .then((result) => {
-            if (settled) {
-              return;
-            }
-
-            settled = true;
-
-            if (typeof result === "object" && result !== null) {
-              resolve((result as Record<string, unknown>)[key]);
-              return;
-            }
-
-            resolve(undefined);
-          })
-          .catch((error: unknown) => {
-            if (settled) {
-              return;
-            }
-
-            settled = true;
-            reject(error instanceof Error ? error : new Error(String(error)));
-          });
-      }
-    } catch (error) {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      reject(error instanceof Error ? error : new Error(String(error)));
-    }
-  });
-}
-
-function setWithCompatibility(storageArea: StorageArea, items: Record<string, unknown>): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    let settled = false;
-
-    const callback = (): void => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      const lastError = getRuntimeLastError();
-
-      if (lastError?.message) {
-        reject(new Error(lastError.message));
-        return;
-      }
-
-      resolve();
-    };
-
-    try {
-      const maybePromise = storageArea.set(items, callback) as Promise<unknown> | void;
-
-      if (maybePromise && typeof maybePromise.then === "function") {
-        maybePromise
-          .then(() => {
-            if (settled) {
-              return;
-            }
-
-            settled = true;
-            resolve();
-          })
-          .catch((error: unknown) => {
-            if (settled) {
-              return;
-            }
-
-            settled = true;
-            reject(error instanceof Error ? error : new Error(String(error)));
-          });
-      }
-    } catch (error) {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      reject(error instanceof Error ? error : new Error(String(error)));
-    }
-  });
-}
-
-export async function loadSettingsFromStorage(storageArea?: StorageArea | null): Promise<Settings> {
-  const resolvedStorageArea = getStorageArea(storageArea);
+export async function loadSettingsFromStorage(storageArea?: StorageAreaLike | null): Promise<Settings> {
+  const resolvedStorageArea = resolveStorageArea(storageArea);
 
   if (!resolvedStorageArea) {
     return cloneSettings(DEFAULT_SETTINGS);
   }
 
-  const storedValue = await getWithCompatibility(resolvedStorageArea, SETTINGS_STORAGE_KEY);
+  const storedValue = await getKeyWithCompatibility(resolvedStorageArea, SETTINGS_STORAGE_KEY);
   return decodeStoredSettings(storedValue);
 }
 
 export async function saveSettingsToStorage(
   value: unknown,
-  storageArea?: StorageArea | null
+  storageArea?: StorageAreaLike | null
 ): Promise<StoredSettingsV1> {
-  const resolvedStorageArea = getStorageArea(storageArea);
+  const resolvedStorageArea = resolveStorageArea(storageArea);
   const sanitizedSettings = sanitizeSettings(value, DEFAULT_SETTINGS);
 
   const envelope: StoredSettingsV1 = {
@@ -259,7 +124,7 @@ export async function saveSettingsToStorage(
   };
 
   if (resolvedStorageArea) {
-    await setWithCompatibility(resolvedStorageArea, {
+    await setItemsWithCompatibility(resolvedStorageArea, {
       [SETTINGS_STORAGE_KEY]: envelope
     });
   }
