@@ -1,90 +1,98 @@
 # Plan 24 - Anti-Patterns and Code Health
 
 ## Status
-Draft
+Implemented
 
 ## Goal
-Address maintainability and correctness anti-patterns not fully covered by other lenses.
+Harden internal code-health contracts by replacing implicit payload/message assumptions with explicit typed guards and by expanding invariant-level storage tests, without changing user-facing behavior or storage schemas.
 
 ## Scope
-- Focus on code-health improvements: explicit contracts, invariants, and error handling clarity.
-- Avoid overlapping implementation with other lens plans unless cross-referenced.
+- Background event payload contract hardening via shared typed guards.
+- Options-page status/copy literal centralization into typed message maps with string parity.
+- Explicit decode/sanitize invariant comments and direct store test coverage expansion.
 
 ## Non-goals
-- No feature work.
-- No policy semantics changes.
-
-## Lens Definition
-This lens captures cross-cutting anti-patterns in typing, error semantics, and maintainability hygiene.
-
-## Scoring Model
-- `Impact` (1-5)
-- `Effort` (1-5)
-- `Confidence` (1-5)
-- `Priority Score = (Impact * Confidence) - Effort`
-
-## Recommendations
-### A24-1
-- Finding: background message handling uses loosely typed payload inspection.
-- Evidence: runtime listener casts `message` to `{ type?: string } | null | undefined` and branches on ad hoc string checks.
-- Risk if unchanged: fragile message-contract evolution and reduced static guarantees.
-- Proposed change: add discriminated union message types in `types.ts` and parse guards in background listener.
-- Estimated impact: stronger type safety and clearer runtime contracts.
-- Complexity: low.
-- Dependencies: update message-related tests.
-- Rollback: revert to current loose message handling.
-- Score: Impact 3, Effort 1, Confidence 5, Priority Score 14.
-
-### A24-2
-- Finding: fallback/error statuses are represented as free-form strings across options and suspended views.
-- Evidence: many hardcoded literals in `options.ts` and `suspended.ts`.
-- Risk if unchanged: inconsistency and brittle tests on exact text coupling.
-- Proposed change: centralize status enums/message maps with explicit state-to-text mapping.
-- Estimated impact: improved consistency and lower copy drift.
-- Complexity: medium.
-- Dependencies: coordinate with simplicity plan S22-3.
-- Rollback: restore inline string literals.
-- Score: Impact 3, Effort 2, Confidence 4, Priority Score 10.
-
-### A24-3
-- Finding: store decode/sanitize functions are robust but invariant expectations are partially implicit.
-- Evidence: sanitation paths in `settings-store.ts`, `activity-store.ts`, `recovery-store.ts` rely on local assumptions not all expressed as named invariants.
-- Risk if unchanged: future contributors may introduce subtle schema handling regressions.
-- Proposed change: add explicit invariant comments and focused tests for schema edge cases (invalid types, boundary values, duplicates).
-- Estimated impact: better long-term correctness confidence.
-- Complexity: low-to-medium.
-- Dependencies: store test expansions.
-- Rollback: remove invariant annotations/tests added by this plan.
-- Score: Impact 3, Effort 2, Confidence 4, Priority Score 10.
+- No feature additions.
+- No suspend policy behavior changes.
+- No storage schema/key/version changes.
+- No permissions/runtime surface expansion.
 
 ## Implementation Steps
-1. Introduce typed contracts for runtime messages and UI status mapping.
-2. Add explicit invariants for decode/sanitize behavior.
-3. Expand test coverage for edge-case schema payloads.
+1. Added shared payload contracts and guards in `extension/src/types.ts`:
+   - `TabUpdatedChangeInfo`
+   - `StorageChange`
+   - `StorageOnChangedMap`
+   - `isMeaningfulTabUpdatedChangeInfo(...)`
+   - `isStorageOnChangedMap(...)`
+   - `isStorageChange(...)`
+2. Updated `extension/src/background.ts` to consume shared guards instead of local ad hoc payload typing for:
+   - `tabs.onUpdated` meaningful-change detection
+   - `storage.onChanged` settings change payload gating
+3. Centralized options-page user-facing statuses in `extension/src/options.ts` via a typed `optionsMessages` map:
+   - settings status
+   - recovery status/labels
+   - idle-hours validation text
+   - retained exact existing strings
+4. Added concise invariant comments in:
+   - `extension/src/settings-store.ts`
+   - `extension/src/activity-store.ts`
+   - `extension/src/recovery-store.ts`
+5. Expanded direct store tests:
+   - added `tests/settings-store.test.mjs`
+   - added `tests/activity-store.test.mjs`
+   - extended `tests/recovery-store.test.mjs` with trim/cap coverage
 
-## Files Expected to Change
-- `extension/src/background.ts`
+## Files Added/Changed
 - `extension/src/types.ts`
+- `extension/src/background.ts`
 - `extension/src/options.ts`
-- `extension/src/suspended.ts`
 - `extension/src/settings-store.ts`
 - `extension/src/activity-store.ts`
 - `extension/src/recovery-store.ts`
-- `tests/*`
+- `tests/settings-store.test.mjs` (new)
+- `tests/activity-store.test.mjs` (new)
+- `tests/recovery-store.test.mjs`
 - `docs/architecture.md`
 - `docs/plans/plan-24-anti-patterns-and-code-health.md`
 - `ROADMAP.md`
 
-## Test/Evidence Expectations
-- `npm run typecheck`
-- `npm run test`
+## Tests/Evidence
+- Command: `npm run build`
+  - Result: passed.
+- Command: `node --test tests/settings-store.test.mjs tests/activity-store.test.mjs tests/recovery-store.test.mjs tests/settings-ui.test.mjs tests/settings-runtime.test.mjs tests/background-event-wiring.test.mjs`
+  - Result: passed (42 tests, 0 failures).
+- Command: `npm run test`
+  - Result: passed (103 tests, 0 failures).
 
 ## Exit Criteria
-- Identified anti-patterns are replaced by explicit, typed, and tested contracts.
-- No runtime behavior regressions.
+- Background payload contracts are explicit and shared.
+- Options status literals are centralized with no string behavior drift.
+- Dedicated settings/activity store decode/sanitize tests exist; recovery-store coverage expanded.
+- Build, targeted tests, and full suite pass.
 
 ## Rollback
-- Revert Plan 24 files and rerun tests.
+- Revert Plan 24 files:
+  - `extension/src/types.ts`
+  - `extension/src/background.ts`
+  - `extension/src/options.ts`
+  - `extension/src/settings-store.ts`
+  - `extension/src/activity-store.ts`
+  - `extension/src/recovery-store.ts`
+  - `tests/settings-store.test.mjs`
+  - `tests/activity-store.test.mjs`
+  - `tests/recovery-store.test.mjs`
+  - `docs/architecture.md`
+  - `docs/plans/plan-24-anti-patterns-and-code-health.md`
+  - `ROADMAP.md`
+- Re-run:
+  - `npm run build`
+  - `npm run test`
 
-## Risks Left
-- Full confidence still depends on periodic manual Safari smoke validation for UI/runtime integration.
+## Decisions
+- Replaced stale draft assumption about runtime message listeners with current event-payload contract hardening (no `runtime.onMessage` path exists now).
+- Kept all options-page user-facing status strings exactly unchanged while centralizing literal ownership.
+- Added direct store tests at module level to lock sanitize/decode invariants independent of higher-level runtime tests.
+
+## Retrospective
+- What changed: payload/state contracts are now explicit in shared types, options message ownership is centralized, and store invariants are covered by dedicated tests.
+- Risks left: manual Safari smoke checks remain useful for browser-integration confidence beyond Node harness coverage.

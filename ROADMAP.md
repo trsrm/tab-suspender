@@ -74,7 +74,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 21: Reliability hardening opportunities ([details](docs/plans/plan-21-reliability-hardening-opportunities.md))
 - [x] Plan 22: Simplicity UX and maintenance opportunities ([details](docs/plans/plan-22-simplicity-ux-and-maintenance.md))
 - [x] Plan 23: Over-engineering reduction opportunities ([details](docs/plans/plan-23-over-engineering-reduction.md))
-- [ ] Plan 24: (draft) Anti-pattern and code-health opportunities ([details](docs/plans/plan-24-anti-patterns-and-code-health.md))
+- [x] Plan 24: Anti-pattern and code-health opportunities ([details](docs/plans/plan-24-anti-patterns-and-code-health.md))
 - [ ] Plan 25: (draft) Scheduled snooze and quiet hours ([details](docs/plans/plan-25-scheduled-snooze-and-quiet-hours.md))
 - [ ] Plan 26: (draft) Per-site policy profiles ([details](docs/plans/plan-26-per-site-policy-profiles.md))
 - [ ] Plan 27: (draft) Recovery center UX enhancements ([details](docs/plans/plan-27-recovery-center-ux-enhancements.md))
@@ -189,6 +189,9 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - **D-030**: Background runtime mutable state is now centralized in a typed `runtimeState` envelope, and generic tab API compatibility indirection is replaced by focused `queryTabs`/`updateTab` wrappers.
   - Alternatives: retain scattered module-level globals and a shared generic invocation helper.
   - Impact: lower orchestration complexity and clearer ownership boundaries in `background.ts` without changing runtime behavior or storage contracts.
+- **D-031**: Background event payload validation now uses shared typed guards (`types.ts`), options-page status/copy ownership is centralized in a typed map, and storage sanitize/decode invariants are locked by dedicated module-level tests.
+  - Alternatives: keep local ad hoc payload typing and rely on indirect integration coverage only.
+  - Impact: lower contract drift risk and clearer maintainability boundaries without user-visible behavior changes.
 
 ## Change Log
 - 2026-02-25: Converted roadmap to high-level tracker; moved detailed plan history under `docs/plans/`.
@@ -219,3 +222,4 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-26: Completed Plan 21 reliability hardening with settings transition epoch guards, bounded persistence retries/backoff, and sweep failure-path invariant coverage.
 - 2026-02-26: Completed Plan 22 simplicity UX/maintenance pass by splitting options settings vs recovery status channels, centralizing suspended-page message maps, and adding status-isolation regression coverage.
 - 2026-02-26: Completed Plan 23 over-engineering reduction by centralizing background runtime state in a typed envelope, replacing generic tab API indirection with focused wrappers, and formalizing the `__testing` contract.
+- 2026-02-26: Completed Plan 24 anti-pattern/code-health hardening with shared background payload guards, typed options message maps, and dedicated settings/activity/recovery store invariant tests.

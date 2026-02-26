@@ -42,6 +42,7 @@ function sanitizeEntry(value: unknown): RecoveryEntry | null {
     return null;
   }
 
+  // Invariant: every persisted recovery entry has a validated restorable URL.
   return {
     url: validation.url,
     title: normalizedTitle,
@@ -66,6 +67,7 @@ function sanitizeEntries(value: unknown): RecoveryEntry[] {
     const existing = dedupedByUrl.get(sanitized.url);
 
     if (!existing || sanitized.suspendedAtMinute > existing.suspendedAtMinute) {
+      // Invariant: dedupe winner is the most recent capture for a canonicalized URL.
       dedupedByUrl.set(sanitized.url, sanitized);
     }
   }

@@ -84,3 +84,32 @@ export interface PolicyEvaluatorInput {
     urlTooLong?: boolean;
   };
 }
+
+export interface TabUpdatedChangeInfo {
+  status?: string;
+  url?: string;
+}
+
+export interface StorageChange {
+  newValue?: unknown;
+  oldValue?: unknown;
+}
+
+export type StorageOnChangedMap = Record<string, StorageChange>;
+
+export function isMeaningfulTabUpdatedChangeInfo(value: unknown): value is TabUpdatedChangeInfo {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const typed = value as TabUpdatedChangeInfo;
+  return typeof typed.status === "string" || typeof typed.url === "string";
+}
+
+export function isStorageOnChangedMap(value: unknown): value is StorageOnChangedMap {
+  return typeof value === "object" && value !== null;
+}
+
+export function isStorageChange(value: unknown): value is StorageChange {
+  return typeof value === "object" && value !== null;
+}

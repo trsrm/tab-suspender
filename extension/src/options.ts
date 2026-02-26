@@ -16,6 +16,32 @@ import { validateRestorableUrl } from "./url-safety.js";
 export {};
 
 const RECOVERY_DEFAULT_TITLE = "Untitled tab";
+const optionsMessages = {
+  settingsStatus: {
+    loading: "Loading settings...",
+    loaded: "Settings loaded.",
+    loadFailedDefaults: "Failed to load settings. Using defaults.",
+    savePending: "Saving settings...",
+    saved: "Settings saved.",
+    saveFailed: "Failed to save settings.",
+    validationFailed: "Settings were not saved."
+  },
+  recoveryStatus: {
+    reopenOk: "Reopened suspended tab in a new tab.",
+    reopenFailed: "Failed to reopen suspended tab."
+  },
+  recoveryEmpty: {
+    none: "No recently suspended tabs yet.",
+    loadFailed: "Failed to load recently suspended tabs."
+  },
+  recoveryAction: {
+    reopenButton: "Reopen",
+    invalidRestoreUrlTitle: "URL is no longer eligible for restore."
+  },
+  validation: {
+    idleHoursOutOfRange: `Enter a whole number from ${MIN_IDLE_HOURS} to ${MAX_IDLE_HOURS}.`
+  }
+} as const;
 
 type OptionsElements = {
   form: HTMLFormElement;
@@ -101,6 +127,11 @@ function setIdleHoursError(elements: OptionsElements, message: string): void {
   elements.idleHoursError.hidden = false;
   elements.idleHoursError.textContent = message;
   elements.idleHoursInput.setAttribute("aria-invalid", "true");
+}
+
+function getSavedWithIgnoredEntriesMessage(ignoredInvalidCount: number): string {
+  const suffix = ignoredInvalidCount === 1 ? "entry" : "entries";
+  return `Settings saved. Ignored ${ignoredInvalidCount} invalid excluded host ${suffix}.`;
 }
 
 function parseIdleHours(rawValue: string): number | null {
@@ -228,21 +259,21 @@ function createRecoveryRow(elements: OptionsElements, entry: RecoveryItem): HTML
 
   const reopenButton = document.createElement("button");
   reopenButton.type = "button";
-  reopenButton.textContent = "Reopen";
+  reopenButton.textContent = optionsMessages.recoveryAction.reopenButton;
 
   const validation = validateRestorableUrl(entry.url);
   if (!validation.ok) {
     reopenButton.disabled = true;
-    reopenButton.title = "URL is no longer eligible for restore.";
+    reopenButton.title = optionsMessages.recoveryAction.invalidRestoreUrlTitle;
   } else {
     reopenButton.addEventListener("click", () => {
       reopenButton.disabled = true;
       void createTabWithCompatibility(validation.url)
         .then(() => {
-          setRecoveryStatus(elements, "Reopened suspended tab in a new tab.");
+          setRecoveryStatus(elements, optionsMessages.recoveryStatus.reopenOk);
         })
         .catch(() => {
-          setRecoveryStatus(elements, "Failed to reopen suspended tab.");
+          setRecoveryStatus(elements, optionsMessages.recoveryStatus.reopenFailed);
           reopenButton.disabled = false;
         });
     });
@@ -261,7 +292,7 @@ function renderRecoveryList(elements: OptionsElements, entries: RecoveryItem[]):
   if (entries.length === 0) {
     elements.recoveryList.replaceChildren();
     recoveryRowsByList.set(elements.recoveryList, new Map<string, HTMLElement>());
-    setRecoveryEmpty(elements, "No recently suspended tabs yet.", false);
+    setRecoveryEmpty(elements, optionsMessages.recoveryEmpty.none, false);
     return;
   }
 
@@ -293,22 +324,22 @@ async function loadAndRenderRecovery(elements: OptionsElements): Promise<void> {
     renderRecoveryList(elements, recoveryEntries);
   } catch {
     elements.recoveryList.replaceChildren();
-    setRecoveryEmpty(elements, "Failed to load recently suspended tabs.", false);
+    setRecoveryEmpty(elements, optionsMessages.recoveryEmpty.loadFailed, false);
   }
 }
 
 async function loadAndRenderSettings(elements: OptionsElements): Promise<void> {
-  setSettingsStatus(elements, "Loading settings...");
+  setSettingsStatus(elements, optionsMessages.settingsStatus.loading);
   setBusy(elements, true);
   clearIdleHoursError(elements);
 
   try {
     const settings = await loadSettingsFromStorage();
     renderSettings(elements, settings);
-    setSettingsStatus(elements, "Settings loaded.");
+    setSettingsStatus(elements, optionsMessages.settingsStatus.loaded);
   } catch {
     renderSettings(elements, DEFAULT_SETTINGS);
-    setSettingsStatus(elements, "Failed to load settings. Using defaults.");
+    setSettingsStatus(elements, optionsMessages.settingsStatus.loadFailedDefaults);
   } finally {
     setBusy(elements, false);
   }
@@ -320,16 +351,13 @@ async function handleSave(elements: OptionsElements): Promise<void> {
   const parsedIdleHours = parseIdleHours(elements.idleHoursInput.value);
 
   if (parsedIdleHours === null) {
-    setIdleHoursError(
-      elements,
-      `Enter a whole number from ${MIN_IDLE_HOURS} to ${MAX_IDLE_HOURS}.`
-    );
-    setSettingsStatus(elements, "Settings were not saved.");
+    setIdleHoursError(elements, optionsMessages.validation.idleHoursOutOfRange);
+    setSettingsStatus(elements, optionsMessages.settingsStatus.validationFailed);
     return;
   }
 
   setBusy(elements, true);
-  setSettingsStatus(elements, "Saving settings...");
+  setSettingsStatus(elements, optionsMessages.settingsStatus.savePending);
 
   const normalizedExcludedHosts = normalizeExcludedHostEntries(elements.excludedHostsInput.value, {
     maxEntries: MAX_EXCLUDED_HOSTS,
@@ -346,16 +374,12 @@ async function handleSave(elements: OptionsElements): Promise<void> {
 
     renderSettings(elements, persisted.settings);
     if (normalizedExcludedHosts.ignoredInvalidCount > 0) {
-      const suffix = normalizedExcludedHosts.ignoredInvalidCount === 1 ? "entry" : "entries";
-      setSettingsStatus(
-        elements,
-        `Settings saved. Ignored ${normalizedExcludedHosts.ignoredInvalidCount} invalid excluded host ${suffix}.`
-      );
+      setSettingsStatus(elements, getSavedWithIgnoredEntriesMessage(normalizedExcludedHosts.ignoredInvalidCount));
     } else {
-      setSettingsStatus(elements, "Settings saved.");
+      setSettingsStatus(elements, optionsMessages.settingsStatus.saved);
     }
   } catch {
-    setSettingsStatus(elements, "Failed to save settings.");
+    setSettingsStatus(elements, optionsMessages.settingsStatus.saveFailed);
   } finally {
     setBusy(elements, false);
   }

@@ -46,6 +46,7 @@ function sanitizeActivityRecord(value: unknown): TabActivity | null {
   const windowId = typeof windowIdCandidate === "number" && Number.isInteger(windowIdCandidate)
     ? windowIdCandidate
     : WINDOW_ID_NONE;
+  // Invariant: persisted activity never has lastUpdated earlier than lastActive.
   const normalizedLastUpdatedAtMinute = Math.max(lastUpdatedAtMinute, lastActiveAtMinute);
 
   return {
@@ -80,6 +81,7 @@ function sanitizeActivity(value: unknown): TabActivity[] {
         sanitized.lastActiveAtMinute > existing.lastActiveAtMinute
       )
     ) {
+      // Invariant: dedupe winner is the most recently updated (then most recently active) record per tab.
       deduped.set(sanitized.tabId, sanitized);
     }
 

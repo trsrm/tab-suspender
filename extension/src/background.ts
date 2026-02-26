@@ -1,4 +1,14 @@
-import type { DecodedSuspendPayload, RecoveryEntry, Settings, SuspendPayload, TabActivity } from "./types.js";
+import {
+  isStorageChange,
+  isMeaningfulTabUpdatedChangeInfo,
+  isStorageOnChangedMap,
+  type DecodedSuspendPayload,
+  type RecoveryEntry,
+  type Settings,
+  type StorageChange,
+  type SuspendPayload,
+  type TabActivity
+} from "./types.js";
 import { DEFAULT_SETTINGS, SETTINGS_STORAGE_KEY, decodeStoredSettings, loadSettingsFromStorage } from "./settings-store.js";
 import { loadRecoveryFromStorage, saveRecoveryToStorage } from "./recovery-store.js";
 import { isSuspendedDataUrl as isGeneratedSuspendedDataUrl } from "./suspended-payload.js";
@@ -22,16 +32,6 @@ type ActivatedInfo = {
 
 type AlarmInfo = {
   name?: string;
-};
-
-type StorageChange = {
-  newValue?: unknown;
-  oldValue?: unknown;
-};
-
-type TabUpdatedChangeInfo = {
-  status?: string;
-  url?: string;
 };
 
 type BackgroundRuntimeState = {
@@ -335,14 +335,13 @@ function alignSweepCadenceAfterSettingsChange(nowMinute = getCurrentEpochMinute(
   sweepCoordinator.alignDueCandidate(nowMinute, nowMinute + interval);
 }
 
-function handleStorageSettingsChange(changes: Record<string, StorageChange> | undefined, areaName: string): void {
-  if (areaName !== "local" || !changes) {
+function handleStorageSettingsChange(changes: unknown, areaName: string): void {
+  if (areaName !== "local" || !isStorageOnChangedMap(changes)) {
     return;
   }
 
   const settingsChange = changes[SETTINGS_STORAGE_KEY];
-
-  if (!settingsChange) {
+  if (!isStorageChange(settingsChange)) {
     return;
   }
 
@@ -363,16 +362,6 @@ function scheduleSuspendSweepAlarm(): void {
   } catch (error) {
     log("Failed to schedule suspend sweep alarm.", error);
   }
-}
-
-function isMeaningfulTabUpdate(changeInfo: unknown): boolean {
-  if (typeof changeInfo !== "object" || changeInfo === null) {
-    return false;
-  }
-
-  const typed = changeInfo as TabUpdatedChangeInfo;
-
-  return typeof typed.status === "string" || typeof typed.url === "string";
 }
 
 runtimeState.runtimeReady = (async () => {
@@ -421,7 +410,7 @@ chrome.tabs.onActivated.addListener((activeInfo: ActivatedInfo) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId: number, changeInfo: unknown, tab: QueryTab | undefined) => {
-  if (!tab || tab.active !== true || !isMeaningfulTabUpdate(changeInfo)) {
+  if (!tab || tab.active !== true || !isMeaningfulTabUpdatedChangeInfo(changeInfo)) {
     return;
   }
 
@@ -574,7 +563,7 @@ chrome.action.onClicked.addListener((tab: QueryTab | undefined) => {
 
 if (chrome.storage?.onChanged && typeof chrome.storage.onChanged.addListener === "function") {
   chrome.storage.onChanged.addListener(
-    (changes: Record<string, StorageChange> | undefined, areaName: string | undefined) => {
+    (changes: unknown, areaName: string | undefined) => {
       handleStorageSettingsChange(changes, areaName ?? "");
     }
   );

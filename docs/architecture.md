@@ -5,7 +5,7 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 
 ## Runtime Components
 - `extension/src/background.ts`
-  - Composition root: wires listeners, runtime gates, persistence queues, and internal background modules.
+  - Composition root: wires listeners, runtime gates, persistence queues, and internal background modules, including shared typed listener payload guards.
 - `extension/src/background/runtime-bootstrap.ts`
   - Startup hydration/prune/seed orchestration for deterministic runtime readiness.
 - `extension/src/background/activity-runtime.ts`
@@ -33,7 +33,7 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 - `extension/src/suspended-payload.ts`
   - Shared suspend payload sanitization/decoding and generation of the disable-safe `data:` suspended page document.
 - `extension/src/types.ts`
-  - Shared settings, activity, policy, and payload interfaces.
+  - Shared settings, activity, policy, payload interfaces, and runtime event payload guard types.
 
 ## Build and Packaging Flow
 - Source lives in `extension/`.

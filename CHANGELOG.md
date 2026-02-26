@@ -2,7 +2,13 @@
 
 All notable user-facing changes are documented in this file.
 
-Current release: **1.1.7**
+Current release: **1.1.8**
+
+## [1.1.8] - 2026-02-26
+- Hardened background listener payload handling with shared typed guards to reduce event-contract drift risk without changing suspend behavior.
+- Centralized Options page status and validation copy into typed message maps while preserving exact user-visible text.
+- Added dedicated settings/activity store invariant test suites for decode/sanitize boundary, dedupe, and cap behaviors.
+- Expanded recovery-store test coverage for trim/cap invariants and kept storage schema compatibility unchanged.
 
 ## [1.1.7] - 2026-02-26
 - Improved background runtime consistency by centralizing runtime state ownership, reducing edge-case drift during event-heavy tab/window activity.

@@ -66,6 +66,28 @@ test("decodeStoredRecoveryState sanitizes, dedupes, and sorts by most recent min
   ]);
 });
 
+test("decodeStoredRecoveryState trims title/url and enforces entry cap", async () => {
+  const recoveryStore = await importRecoveryStore();
+  const longTitle = "t".repeat(500);
+  const entries = Array.from({ length: recoveryStore.MAX_RECOVERY_ENTRIES + 20 }, (_, index) => ({
+    url: ` https://example.com/${index} `,
+    title: longTitle,
+    suspendedAtMinute: index
+  }));
+
+  const decoded = recoveryStore.decodeStoredRecoveryState({
+    schemaVersion: 1,
+    entries
+  });
+
+  assert.equal(decoded.length, recoveryStore.MAX_RECOVERY_ENTRIES);
+  assert.equal(decoded[0].suspendedAtMinute, recoveryStore.MAX_RECOVERY_ENTRIES + 19);
+  assert.equal(decoded.at(-1).suspendedAtMinute, 20);
+  assert.equal(decoded[0].url, `https://example.com/${recoveryStore.MAX_RECOVERY_ENTRIES + 19}`);
+  assert.equal(decoded[0].title.length > 0, true);
+  assert.equal(decoded[0].title.length <= longTitle.length, true);
+});
+
 test("saveRecoveryToStorage writes versioned sanitized envelope", async () => {
   const recoveryStore = await importRecoveryStore();
   const storageArea = createStorageArea();

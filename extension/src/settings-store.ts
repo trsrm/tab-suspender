@@ -68,6 +68,7 @@ function sanitizeExcludedHosts(value: unknown, fallback: string[]): string[] {
     maxHostLength: MAX_EXCLUDED_HOST_LENGTH
   });
 
+  // Invariant: malformed host payload types do not wipe a previously valid fallback set.
   if (!Array.isArray(value) && typeof value !== "string") {
     return [...fallback];
   }
@@ -97,6 +98,7 @@ export function decodeStoredSettings(value: unknown): Settings {
     return cloneSettings(DEFAULT_SETTINGS);
   }
 
+  // Invariant: decoded settings are always fully sanitized and within canonical bounds.
   return sanitizeSettings(record.settings, DEFAULT_SETTINGS);
 }
 
