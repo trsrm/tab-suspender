@@ -1,98 +1,64 @@
 # Tab Suspender (Safari)
 
-A privacy-first Safari Web Extension that suspends idle tabs and restores them safely.
+A privacy-first Safari Web Extension that automatically suspends idle tabs and helps you restore them safely.
 
-## Current Status
-- Plan 0-10 and 13-16 are implemented.
-- Local QA hardening is documented in `docs/qa-checklist.md` and `docs/plans/plan-8-qa-hardening.md`.
-- v1 target remains macOS Safari with no telemetry.
+## What it is
+Tab Suspender reduces tab clutter and resource usage by replacing long-idle tabs with a lightweight suspended page. It keeps suspension behavior predictable and local-only, with no telemetry or remote services.
 
-## Implemented Behavior
-- Background sweep evaluates tabs every minute and suspends eligible tabs after they remain unfocused for the configured idle timeout.
-- Toolbar action click can suspend the current tab immediately by bypassing only `active` + timeout checks.
-- Policy safety guards skip active, pinned (optional), audible (optional), internal URLs, excluded hosts, and oversized URLs.
-- Suspended-page payload includes original URL, title (trimmed/capped), and capture timestamp (minute precision).
-- Suspended page uses previous tab title context, shows full original URL with click-to-copy feedback, and keeps URL display cropped to one line for readability.
-- Restore flow validates URL safety (`http/https`, max 2048 chars) before navigation, and restore enablement remains validator-gated.
-- Settings are versioned in `chrome.storage.local` under `settings` with runtime live updates via `storage.onChanged`.
-- Recovery history for recently suspended tabs is versioned in `chrome.storage.local` under `recoveryState` and exposed in Options as one-click reopen entries.
-- Host exclusions support exact hosts (`example.com`) and wildcard subdomain rules (`*.example.com`, subdomains only).
+## Key features
+- Automatic idle tab suspension based on your configured timeout.
+- Manual suspend for the current tab from the toolbar action.
+- Safety guards that skip active, internal, and other protected tabs.
+- Per-site exclusions with exact host and wildcard subdomain support.
+- Safe restore flow with URL validation before navigation.
+- Recently suspended recovery list in Options for one-click reopen.
 
-## Non-Goals and Limits (v1)
-- No telemetry, analytics, or remote network calls.
-- No automatic cloud sync; settings are local extension storage.
+## Who it is for
+- macOS Safari users who keep many tabs open and want less memory/CPU pressure.
+- Users who want a local-first extension with no telemetry.
+
+Current platform scope:
+- macOS Safari only.
 - No iOS/iPadOS support.
-- No non-HTTP(S) restore targets.
-- Wildcard exclusions do not match apex domains.
 
-## Prerequisites
-- macOS with Safari (for manual smoke checks).
-- Node.js + npm.
-
-## Local Development
+## Quick start (Xcode local install)
 1. Install dependencies:
    - `npm ci`
-2. Build runtime output:
-   - `npm run build`
-3. Run type checks:
-   - `npm run typecheck`
-4. Run regression tests:
-   - `npm run test`
-
-## Loading the Extension Locally (Xcode Wrapper)
-1. Build and sync wrapper resources:
+2. Build extension assets and sync the Safari wrapper:
    - `npm run build:safari-wrapper`
-2. Open `safari-wrapper/TabSuspenderWrapper.xcodeproj` in Xcode.
-3. Select the `TabSuspenderHost` scheme and run once.
-4. In Safari, enable **Tab Suspender** in **Settings > Extensions**.
-5. Optional: open extension settings from Safari and run smoke checks in `docs/qa-checklist.md`.
+3. Open `safari-wrapper/TabSuspenderWrapper.xcodeproj` in Xcode.
+4. Run the `TabSuspenderHost` scheme once.
+5. In Safari, open `Settings > Extensions` and enable **Tab Suspender**.
 
-Notes:
-- Runtime artifacts are generated into `build/extension/`.
-- Wrapper extension resources are synced into `safari-wrapper/TabSuspenderExtension/Resources/`.
-- `extension/` is source/static input only; do not load it directly.
-- Full end-to-end setup guide: `docs/safari-local-install.md`.
+For full setup and troubleshooting steps, see [Safari Local Install Guide](docs/safari-local-install.md).
 
-## Contributing
-- See `CONTRIBUTING.md` for plan-scoped workflow, required checks, evidence format, and rollback expectations.
-
-## Manual Verification Workflow
-Use `docs/qa-checklist.md` for the canonical release-readiness checklist. Core smoke coverage includes:
-- Settings load/save behavior.
-- Idle sweep suspension behavior.
-- Action-click suspension safety behavior.
-- Exact + wildcard exclusion behavior.
-- Suspended-page restore safety behavior.
+## How to use
+1. Open extension options from Safari extension settings.
+2. Set your idle timeout and optional rules (for example pinned/audible behavior).
+3. Add excluded hosts as needed (`example.com` or `*.example.com`).
+4. Use the toolbar action when you want to suspend the current tab immediately.
+5. On a suspended tab, use **Restore** to return to the original page (URL safety checks apply).
+6. If tabs disappear after extension reload/update, reopen from **Recently Suspended Tabs** in Options.
 
 ## Troubleshooting
-- Build artifacts missing:
-  - Run `npm run build` and verify `build/extension/manifest.json` exists.
-- Wrapper missing extension files:
+- Extension files not showing in wrapper:
   - Run `npm run build:safari-wrapper` and verify `safari-wrapper/TabSuspenderExtension/Resources/manifest.json` exists.
-- Settings appear stale:
-  - Reopen options page and confirm `chrome.storage.local["settings"]` value shape (`schemaVersion: 1`).
+- Settings seem stale:
+  - Reopen Options and save again to refresh local settings state.
 - Tab did not suspend:
-  - Check guard conditions: active, pinned/audible toggles, internal URL, excluded host, timeout, URL length.
-  - Timeout is minute-granular with a 1-minute sweep cadence (for a `2` minute timeout, expect suspend in roughly 2-3 minutes after tab loses focus).
-- Restore button disabled:
-  - Check suspended payload URL validity (`http/https`) and max URL length (2048).
-- Tabs disappeared after extension reload:
-  - Open Options and use the `Recently Suspended Tabs` list to reopen recoverable URLs in new tabs.
+  - Check active/internal/excluded status and timeout window (sweep is minute-based).
+- Restore is unavailable:
+  - The suspended URL failed restore safety checks (`http/https`, max length).
 
-## Repository Layout
-- `ROADMAP.md`: high-level plan status + global cross-plan decisions.
-- `CHANGELOG.md`: high-level release history for end users.
-- `docs/plans/`: detailed plan-by-plan implementation records and evidence.
-- `docs/architecture.md`: runtime architecture and safety decisions.
-- `docs/qa-checklist.md`: local release-readiness checklist.
-- `extension/`: source TypeScript + static extension assets.
-- `build/extension/`: compiled/importable extension runtime.
-- `safari-wrapper/`: committed Xcode host app + Safari extension wrapper project.
-- `tests/`: Node test suites for policy, runtime, UI logic, and guardrails.
+## Documentation map
+User docs:
+- [Changelog](CHANGELOG.md)
+- [Safari Local Install Guide](docs/safari-local-install.md)
+- [Direct Distribution Guide](docs/direct-distribution.md)
 
-## Scripts
-- `npm run build`: compile TypeScript and copy static extension assets.
-- `npm run sync:safari-wrapper`: copy `build/extension` into wrapper extension resources.
-- `npm run build:safari-wrapper`: run build then sync wrapper resources.
-- `npm run typecheck`: TypeScript typecheck without emit.
-- `npm run test`: build + run all Node test suites (`tests/*.test.mjs`).
+Contributor docs:
+- [Contributing](CONTRIBUTING.md)
+- [Architecture](docs/architecture.md)
+
+## Contributing
+For development workflow, plan tracking, required checks, and release/versioning rules, see [CONTRIBUTING.md](CONTRIBUTING.md).
