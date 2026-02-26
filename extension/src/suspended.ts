@@ -1,8 +1,7 @@
-import type { SuspendPayload } from "./types.js";
+import { decodeSuspendPayloadFromSearchParams, MAX_SUSPENDED_TITLE_LENGTH } from "./suspended-payload.js";
 import { validateRestorableUrl } from "./url-safety.js";
 
 const MINUTE_MS = 60_000;
-const MAX_TITLE_LENGTH = 120;
 const MAX_DOCUMENT_TITLE_LENGTH = 80;
 const DEFAULT_TITLE = "Suspended tab";
 const URL_UNAVAILABLE_TEXT = "Original URL is unavailable.";
@@ -15,16 +14,6 @@ const COPY_STATUS_FAILED = "Could not copy URL. Copy manually.";
 function getSearchParams(): URLSearchParams {
   const search = typeof globalThis.location?.search === "string" ? globalThis.location.search : "";
   return new URLSearchParams(search);
-}
-
-function parseSuspendPayload(params: URLSearchParams): SuspendPayload {
-  const rawTs = Number(params.get("ts"));
-
-  return {
-    u: params.get("u") ?? "",
-    t: (params.get("t") ?? "").trim().slice(0, MAX_TITLE_LENGTH),
-    ts: Number.isFinite(rawTs) ? rawTs : 0
-  };
 }
 
 function getDisplayTitle(title: string): string {
@@ -76,7 +65,8 @@ function getInvalidPayloadStatus(reason: "missing" | "tooLong" | "invalidProtoco
 }
 
 const params = getSearchParams();
-const payload = parseSuspendPayload(params);
+const payload = decodeSuspendPayloadFromSearchParams(params, "extensionPage");
+const payloadTitle = payload.t.slice(0, MAX_SUSPENDED_TITLE_LENGTH);
 
 const titleEl = document.getElementById("title");
 const originalUrlEl = document.getElementById("originalUrl") as HTMLButtonElement | null;
@@ -85,7 +75,7 @@ const capturedAtEl = document.getElementById("capturedAt");
 const statusEl = document.getElementById("status");
 const restoreButton = document.getElementById("restoreButton") as HTMLButtonElement | null;
 const restoreUrlValidation = validateRestorableUrl(payload.u);
-const pageTitle = getDisplayTitle(payload.t);
+const pageTitle = getDisplayTitle(payloadTitle);
 const displayUrl = getDisplayUrl(payload.u, restoreUrlValidation.ok ? restoreUrlValidation.url : null);
 
 function setCopyStatus(status: string): void {

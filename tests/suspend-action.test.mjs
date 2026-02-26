@@ -12,15 +12,17 @@ const SETTINGS_STORAGE_KEY = "settings";
 const ACTIVITY_STORAGE_KEY = "activityState";
 const RECOVERY_STORAGE_KEY = "recoveryState";
 
-function decodePayloadFromUpdateCall(updateCall) {
+function decodePayloadFromUpdateCall(backgroundModule, updateCall) {
   const [, updateProperties] = updateCall;
-  const destination = new URL(updateProperties.url);
+  const destinationUrl = updateProperties.url;
+  const decodedPayload = backgroundModule.__testing.decodeSuspendedUrl(destinationUrl);
 
   return {
-    destination,
-    u: destination.searchParams.get("u"),
-    t: destination.searchParams.get("t"),
-    ts: destination.searchParams.get("ts")
+    destinationUrl,
+    format: decodedPayload?.format ?? null,
+    u: decodedPayload?.u ?? null,
+    t: decodedPayload?.t ?? null,
+    ts: decodedPayload?.ts != null ? String(decodedPayload.ts) : null
   };
 }
 
@@ -75,8 +77,9 @@ test("runSuspendSweep suspends eligible idle tab with encoded payload", { concur
 
   assert.equal(calls.tabsUpdateCalls.length, 1);
 
-  const payload = decodePayloadFromUpdateCall(calls.tabsUpdateCalls[0]);
-  assert.equal(payload.destination.pathname, "/suspended.html");
+  const payload = decodePayloadFromUpdateCall(backgroundModule, calls.tabsUpdateCalls[0]);
+  assert.equal(payload.destinationUrl.startsWith("data:text/html"), true);
+  assert.equal(payload.format, "dataUrl");
   assert.equal(payload.u, "https://example.com/page?x=1");
   assert.equal(payload.t, "Example Tab");
   assert.equal(payload.ts, "70");
@@ -181,7 +184,7 @@ test("action click suspends active tab immediately by bypassing active and timeo
   await flushAsyncWork();
 
   assert.equal(calls.tabsUpdateCalls.length, 1);
-  const payload = decodePayloadFromUpdateCall(calls.tabsUpdateCalls[0]);
+  const payload = decodePayloadFromUpdateCall(backgroundModule, calls.tabsUpdateCalls[0]);
   assert.equal(payload.u, "https://example.com/manual");
   assert.equal(payload.t, "Manual Suspend");
   assert.equal(payload.ts, "120");
@@ -394,11 +397,18 @@ test("payload URL builder round-trips encoded fields", { concurrency: false }, a
     ts: 333
   });
 
-  const parsed = new URL(destination);
-  assert.equal(parsed.pathname, "/suspended.html");
-  assert.equal(parsed.searchParams.get("u"), "https://example.com/path?q=a b");
-  assert.equal(parsed.searchParams.get("t"), " Trimmed Title ");
-  assert.equal(parsed.searchParams.get("ts"), "333");
+  const decoded = backgroundModule.__testing.decodeSuspendedUrl(destination);
+  assert.equal(backgroundModule.__testing.isSuspendedDataUrl(destination), true);
+  assert.equal(decoded?.format, "dataUrl");
+  assert.equal(decoded?.u, "https://example.com/path?q=a b");
+  assert.equal(decoded?.t, "Trimmed Title");
+  assert.equal(decoded?.ts, 333);
+
+  const decodedHtml = decodeURIComponent(destination.split(",").slice(1).join(","));
+  assert.equal(decodedHtml.includes("TS_DATA_SUSPENDED_PAGE_V1"), true);
+  assert.equal(decodedHtml.includes('id="restoreControl"'), true);
+  assert.equal(decodedHtml.includes('href="https://example.com/path?q=a b"'), true);
+  assert.equal(decodedHtml.includes("Ready to restore this tab."), true);
 });
 
 test("runSuspendSweep continues when one tab update fails", { concurrency: false }, async () => {
@@ -464,7 +474,7 @@ test("runSuspendSweep continues when one tab update fails", { concurrency: false
   await backgroundModule.__testing.runSuspendSweep(100);
 
   assert.equal(calls.tabsUpdateCalls.length, 2);
-  const successPayload = decodePayloadFromUpdateCall(calls.tabsUpdateCalls[1]);
+  const successPayload = decodePayloadFromUpdateCall(backgroundModule, calls.tabsUpdateCalls[1]);
   assert.equal(successPayload.u, "https://example.com/pass");
   assert.equal(successPayload.ts, "100");
 });
@@ -516,7 +526,7 @@ test("runSuspendSweep trims and caps title payload at 120 characters", { concurr
   await backgroundModule.__testing.runSuspendSweep(90);
 
   assert.equal(calls.tabsUpdateCalls.length, 1);
-  const payload = decodePayloadFromUpdateCall(calls.tabsUpdateCalls[0]);
+  const payload = decodePayloadFromUpdateCall(backgroundModule, calls.tabsUpdateCalls[0]);
   assert.equal(payload.t.length, 120);
   assert.equal(payload.t, "A".repeat(120));
 });
@@ -744,9 +754,10 @@ test("runSuspendSweep falls back to unfiltered query when filtered query fails",
   assert.equal(calls.tabsUpdateCalls.length, 0);
 });
 
-test("runSuspendSweep skips already suspended extension pages", { concurrency: false }, async () => {
+test("runSuspendSweep skips already suspended extension and data pages", { concurrency: false }, async () => {
   setNowMinute(212);
 
+  const suspendedDataUrl = "data:text/html;charset=utf-8,%3Cmeta%20name%3D%22tab-suspender-signature%22%20content%3D%22TS_DATA_SUSPENDED_PAGE_V1%22%3E%3Cscript%20id%3D%22tab-suspender-payload%22%20type%3D%22application%2Fjson%22%3E%7B%22u%22%3A%22https%3A%2F%2Fexample.com%22%2C%22t%22%3A%22Saved%22%2C%22ts%22%3A10%7D%3C%2Fscript%3E";
   const { events, calls, backgroundModule } = await importBackgroundWithMock({
     queryResponder(queryInfo) {
       if (!isSweepCandidateQuery(queryInfo)) {
@@ -762,6 +773,15 @@ test("runSuspendSweep skips already suspended extension pages", { concurrency: f
           audible: false,
           url: "safari-extension://test-extension/suspended.html?u=https%3A%2F%2Fexample.com",
           title: "Suspended tab"
+        },
+        {
+          id: 951,
+          windowId: 95,
+          active: false,
+          pinned: false,
+          audible: false,
+          url: suspendedDataUrl,
+          title: "Suspended tab data"
         }
       ];
     }

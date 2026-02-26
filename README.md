@@ -3,7 +3,7 @@
 A privacy-first Safari Web Extension that automatically suspends idle tabs and helps you restore them safely.
 
 ## What it is
-Tab Suspender reduces tab clutter and resource usage by replacing long-idle tabs with a lightweight suspended page. It keeps suspension behavior predictable and local-only, with no telemetry or remote services.
+Tab Suspender reduces tab clutter and resource usage by replacing long-idle tabs with a lightweight suspended page. Suspended tabs are encoded as self-contained `data:` pages so they remain restorable even if the extension is disabled or uninstalled. It keeps behavior predictable and local-only, with no telemetry or remote services.
 
 ## Key features
 - Automatic idle tab suspension based on your configured timeout.
@@ -12,6 +12,7 @@ Tab Suspender reduces tab clutter and resource usage by replacing long-idle tabs
 - Per-site exclusions with exact host and wildcard subdomain support.
 - Safe restore flow with URL validation before navigation.
 - Recently suspended recovery list in Options for one-click reopen.
+- Legacy suspended extension-page URLs remain compatible while the extension is enabled.
 
 ## Who it is for
 - macOS Safari users who keep many tabs open and want less memory/CPU pressure.

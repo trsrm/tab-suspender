@@ -1,15 +1,21 @@
 import { evaluateSuspendDecision } from "./policy.js";
-import type { PolicyEvaluatorInput, RecoveryEntry, Settings, SuspendPayload, TabActivity } from "./types.js";
+import type { DecodedSuspendPayload, PolicyEvaluatorInput, RecoveryEntry, Settings, SuspendPayload, TabActivity } from "./types.js";
 import { validateRestorableUrl } from "./url-safety.js";
 import { DEFAULT_SETTINGS, SETTINGS_STORAGE_KEY, decodeStoredSettings, loadSettingsFromStorage } from "./settings-store.js";
 import { isExcludedUrlByHost } from "./matcher.js";
 import { loadActivityFromStorage, saveActivityToStorage } from "./activity-store.js";
 import { loadRecoveryFromStorage, MAX_RECOVERY_ENTRIES, saveRecoveryToStorage } from "./recovery-store.js";
+import {
+  buildSuspendedDataUrl,
+  decodeLegacySuspendPayloadFromUrl,
+  decodeSuspendPayloadFromDataUrl,
+  isSuspendedDataUrl as isGeneratedSuspendedDataUrl,
+  sanitizeSuspendedTitle
+} from "./suspended-payload.js";
 
 const LOG_PREFIX = "[tab-suspender]";
 const MINUTE_MS = 60_000;
 const WINDOW_ID_NONE = -1;
-const MAX_SUSPENDED_TITLE_LENGTH = 120;
 const SUSPEND_SWEEP_ALARM = "suspend-sweep-v1";
 const SUSPEND_SWEEP_PERIOD_MINUTES = 1;
 const MAX_SWEEP_INTERVAL_MINUTES = 30;
@@ -220,17 +226,18 @@ function buildSuspendSweepQueryInfo(settings: Settings): Record<string, unknown>
   return queryInfo;
 }
 
-function isExtensionSuspendedPageUrl(url: string | undefined): boolean {
+function decodeSuspendedTabPayload(url: string | undefined): DecodedSuspendPayload | null {
   if (typeof url !== "string" || url.length === 0) {
-    return false;
+    return null;
   }
 
-  try {
-    const parsedUrl = new URL(url);
-    return parsedUrl.pathname === "/suspended.html";
-  } catch {
-    return false;
+  const dataPayload = decodeSuspendPayloadFromDataUrl(url);
+
+  if (dataPayload) {
+    return dataPayload;
   }
+
+  return decodeLegacySuspendPayloadFromUrl(url);
 }
 
 async function hydrateSettingsFromStorage(): Promise<void> {
@@ -518,14 +525,6 @@ function buildPolicyInput(
   };
 }
 
-function sanitizeSuspendedTitle(title: unknown): string {
-  if (typeof title !== "string") {
-    return "";
-  }
-
-  return title.trim().slice(0, MAX_SUSPENDED_TITLE_LENGTH);
-}
-
 function buildSuspendPayload(tab: QueryTab, nowMinute: number): SuspendPayload | null {
   const urlValidation = validateRestorableUrl(tab.url);
 
@@ -552,18 +551,7 @@ function trackSuspendedRecoveryEntry(payload: SuspendPayload, suspendedAtMinute:
 }
 
 function encodeSuspendedUrl(payload: SuspendPayload): string {
-  const params = new URLSearchParams();
-  params.set("u", payload.u);
-  params.set("t", payload.t);
-  params.set("ts", String(payload.ts));
-
-  if (chrome?.runtime && typeof chrome.runtime.getURL === "function") {
-    const destinationUrl = new URL(chrome.runtime.getURL("suspended.html"));
-    destinationUrl.search = params.toString();
-    return destinationUrl.toString();
-  }
-
-  return `suspended.html?${params.toString()}`;
+  return buildSuspendedDataUrl(payload);
 }
 
 async function suspendTabIfEligible(
@@ -571,7 +559,7 @@ async function suspendTabIfEligible(
   nowMinute: number,
   options: SuspendEvaluationOptions = {}
 ): Promise<void> {
-  if (isExtensionSuspendedPageUrl(tab.url)) {
+  if (decodeSuspendedTabPayload(tab.url)) {
     return;
   }
 
@@ -1028,5 +1016,11 @@ export const __testing = {
   },
   buildSuspendedUrl(payload: SuspendPayload): string {
     return encodeSuspendedUrl(payload);
+  },
+  decodeSuspendedUrl(url: string): DecodedSuspendPayload | null {
+    return decodeSuspendedTabPayload(url);
+  },
+  isSuspendedDataUrl(url: string | undefined): boolean {
+    return isGeneratedSuspendedDataUrl(url);
   }
 };

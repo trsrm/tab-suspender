@@ -60,6 +60,12 @@ export interface SuspendPayload {
   ts: number;
 }
 
+export type SuspendedPageFormat = "extensionPage" | "dataUrl";
+
+export interface DecodedSuspendPayload extends SuspendPayload {
+  format: SuspendedPageFormat;
+}
+
 export interface PolicyTabSnapshot {
   active: boolean;
   pinned: boolean;

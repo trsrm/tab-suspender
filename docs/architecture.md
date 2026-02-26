@@ -18,6 +18,8 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
   - Options page load/save flow, validation, and status messaging.
 - `extension/src/suspended.ts`
   - Suspended page payload parsing, previous-title context rendering, URL copy feedback, and guarded restore action.
+- `extension/src/suspended-payload.ts`
+  - Shared suspend payload sanitization/decoding and generation of the disable-safe `data:` suspended page document.
 - `extension/src/types.ts`
   - Shared settings, activity, policy, and payload interfaces.
 
@@ -43,9 +45,10 @@ Provide deterministic, safe tab suspension behavior for local Safari usage with 
 - If filtered query fails, runtime falls back to unfiltered tab query for safety.
 4. Policy decision
 - Evaluator returns deterministic `{ shouldSuspend, reason }`.
-- Eligible tabs are rewritten to `suspended.html` with encoded payload.
+- Eligible tabs are rewritten to a self-contained `data:text/html` suspended document with encoded payload.
 5. Suspended page restore
 - Suspended page validates payload URL before allowing restore.
+- Legacy `safari-extension://.../suspended.html?...` tabs are still recognized as already-suspended while extension runtime is available.
 - Invalid, unsupported, or oversized URLs remain blocked with explicit status text.
 
 ## Policy Precedence (Deterministic)
@@ -101,7 +104,7 @@ Used by:
 ## Reliability and Failure Handling
 - Background logs and continues when individual tab updates fail.
 - Query/update wrappers support callback and Promise-style extension APIs.
-- Suspend sweeps skip already-suspended extension pages to avoid self-churn.
+- Suspend sweeps skip already-suspended `data:` pages (signature-validated) and legacy extension suspended pages.
 - Invalid/missing activity defaults to non-suspension (`timeoutNotReached`).
 - Invalid storage payload falls back to defaults.
 
