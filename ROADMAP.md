@@ -75,7 +75,6 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - [x] Plan 22: Simplicity UX and maintenance opportunities ([details](docs/plans/plan-22-simplicity-ux-and-maintenance.md))
 - [x] Plan 23: Over-engineering reduction opportunities ([details](docs/plans/plan-23-over-engineering-reduction.md))
 - [x] Plan 24: Anti-pattern and code-health opportunities ([details](docs/plans/plan-24-anti-patterns-and-code-health.md))
-- [ ] Plan 25: (draft) Scheduled snooze and quiet hours ([details](docs/plans/plan-25-scheduled-snooze-and-quiet-hours.md))
 - [ ] Plan 26: (draft) Per-site policy profiles ([details](docs/plans/plan-26-per-site-policy-profiles.md))
 - [ ] Plan 27: (draft) Recovery center UX enhancements ([details](docs/plans/plan-27-recovery-center-ux-enhancements.md))
 - [ ] Plan 28: (draft) Settings import/export ([details](docs/plans/plan-28-settings-import-export.md))
@@ -213,7 +212,7 @@ Detailed plan scope, decisions, tests, and historical notes are stored in `docs/
 - 2026-02-26: Completed Plan 16 installable Safari packaging baseline with committed Xcode wrapper scaffolding and build-to-wrapper resource sync workflow.
 - 2026-02-26: Completed Plan 17 KISS runtime refactor with modular background internals, shared persist queue helper, and sweep coordinator extraction without behavior-contract changes.
 - 2026-02-26: Completed Plan 11 analysis-only multi-lens review and generated draft Plans 17-24 with standardized scoring/rubric metadata.
-- 2026-02-26: Completed Plan 12 feature discovery analysis and generated draft Plans 25-30 for user-facing capability expansion without runtime changes.
+- 2026-02-26: Completed Plan 12 feature discovery analysis and generated draft Plans 26-30 for user-facing capability expansion without runtime changes.
 - 2026-02-26: Completed Plan 32 long-idle hours UX with minute-compatible storage, 24-hour default timeout, and 30-minute max sweep cadence scaling.
 - 2026-02-26: Completed Plan 31 disable/uninstall-safe suspended-tab survival with signed self-contained `data:` suspended pages and legacy extension-page compatibility detection.
 - 2026-02-26: Completed Plan 18 YAGNI pruning by removing legacy PING messaging, consolidating storage compatibility wrappers into `storage-compat.ts`, and minimizing background `__testing` surface.

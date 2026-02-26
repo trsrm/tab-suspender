@@ -76,7 +76,7 @@ Provide clear, user-visible diagnostics in Options explaining why current tabs a
 
 ## Dependencies / Cross-Plan References
 - Leverages policy reason outputs established in Plan 3 and runtime flow from Plan 13/15.
-- Can complement Plan 25 and Plan 26 by surfacing pause/profile-derived reasons in future updates.
+- Can complement Plan 26 by surfacing pause/profile-derived reasons in future updates.
 
 ## Scoring
 - Impact: 4

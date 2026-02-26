@@ -28,7 +28,6 @@ This directory stores detailed plan specs and historical execution records.
 - `plan-22-simplicity-ux-and-maintenance.md`
 - `plan-23-over-engineering-reduction.md`
 - `plan-24-anti-patterns-and-code-health.md`
-- `plan-25-scheduled-snooze-and-quiet-hours.md`
 - `plan-26-per-site-policy-profiles.md`
 - `plan-27-recovery-center-ux-enhancements.md`
 - `plan-28-settings-import-export.md`
